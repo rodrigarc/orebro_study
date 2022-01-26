@@ -1,4 +1,3 @@
-/data
 /results/*
 !/results/lab_notebook
 /doc/*
