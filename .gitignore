@@ -1,5 +1,6 @@
 /data
 /results/*
+!/results/lab_notebook
 /doc/*
 *DS_Store
 src/.Rhistory
