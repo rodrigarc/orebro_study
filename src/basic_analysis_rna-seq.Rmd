@@ -260,7 +260,7 @@ print(volcanoPlot)
 
 ## Enrichment analysis
 
-Selecting two different databases for search for enrichment analysis. The databases selected were "GO_Biological_Process_2021" and "KEGG_2021_Human".
+Selecting two different databases for search for enrichment analysis. The databases selected were "GO_Biological_Process_2021" and "KEGG_2021_Human". Testing also the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789) using some GSEA package.
 
 ```{r}
 #Enrichment analysis
@@ -300,6 +300,7 @@ for(res in names(enrichmentRes)){
   plot(arrangeGrob(grobs = enrichPlots))
 }
 ```
+
 
 # Testing different variables interactions
 
