@@ -48,6 +48,8 @@ library(gridExtra)
 library(stringr)
 library(ggVennDiagram)
 library(biomaRt)
+library(tibble)
+
 ```
 
 
@@ -254,7 +256,7 @@ dim(res_filter1)
 # add gene names
 annotated_res_filter1 = inner_join(rownames_to_column(res_filter1), gene_list,
                                   by=c("rowname" = "ensembl_gene_id"))
-rownames(annotated_res_filter1) <- annotated_res_filter1$hgnc_symbol
+# rownames(annotated_res_filter1) <- annotated_res_filter1$hgnc_symbol
 dim(annotated_res_filter1)
 
 # Filter results
