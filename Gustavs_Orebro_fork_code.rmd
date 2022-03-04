@@ -1,0 +1,336 @@
+---
+title: "Gustavs_Orebro_fork "
+author: "Gustav Joas"
+date: "2/16/2022"
+output: html_document
+abstract: 
+knit: (function(inputFile, encoding) {
+          rmarkdown::render(inputFile,
+                            encoding = encoding, 
+                            output_file = paste0(
+                              xfun::sans_ext(inputFile), '_', Sys.Date(), '.html'),
+                                output_dir = "../results/lab_book/")})
+  ---
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(echo = TRUE,
+                     root.dir = getwd(),
+                     fig.width = 6, fig.height = 5,
+                     warning = FALSE, 
+                     message = FALSE)
+
+result.dir <- paste0("results/",Sys.Date(),"/")
+
+## creates result.dir with date in if not existent
+ifelse(isFALSE(dir.exists(paste0("../",result.dir))), dir.create(paste0("../",result.dir),recursive = TRUE),"Result directory for today exists already!")
+options(stringsAsFactors = FALSE) 
+```
+
+## Loading libraries
+```{r}
+library(kableExtra)
+library(forcats)
+library(caret)
+library(C50)
+library(mgsub)
+library(dplyr) 
+library(DESeq2) 
+library(pheatmap) 
+library(ggplot2) 
+library(plotly)
+library(ggrepel) 
+library(RColorBrewer) 
+library(limma) 
+library(edgeR) 
+library(enrichR) 
+library(gridExtra) 
+library(stringr)
+library(ggVennDiagram)
+library(biomaRt)
+```
+
+
+## Download and load data
+```{r message=FALSE, warning=FALSE}
+#reading data
+sampleTable <- read.csv("data/proces-data_core-facility/sample_metadata.csv")
+#gonna add more 
+countTable <- data.table::fread("data/proces-data_core-facility/subreadCounts_hg38ens_minus.txt", header = TRUE, sep = "\t") %>% 
+  as.data.frame()
+
+```
+
+
+#Data Wrangling  
+```{r}
+
+cr <- countTable[,7:45]
+rownames(cr) <- countTable$Geneid
+
+#gsub('P22761_100', '', sampleTable$sample_ID, fixed = TRUE)
+
+mr <- sampleTable
+rownames(mr) <- sampleTable$sample_ID
+
+str_trim(mr$group, side = c("both")) ##remove whitespace after Pos, but doesn't seem to make difference downstream
+
+all.equal(colnames(cr),rownames(mr))
+all(rownames(mr) == colnames(cr))
+
+write.csv(cr,file="data/gene_counts_raw.csv",quote=FALSE)
+write.csv(mr,file="data/metadata_raw.csv",quote=FALSE)
+```
+
+#Match ensembl IDs to gene names
+```{r}
+
+mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
+genes <- countTable$Geneid
+gene_list <- getBM(filters= "ensembl_gene_id", 
+                attributes= c("ensembl_gene_id", 
+                              "hgnc_symbol",
+                              "description"),
+                values=genes,
+                mart= mart)
+gene_list <- gene_list[gene_list$hgnc_symbol != "",]
+
+```
+
+# Filtering
+
+```{r}
+# visualise the distribution of counts using a boxplot and density plot
+rafalib::mypar(1,2,mar=c(6,3,3,2))
+boxplot(log2(as.matrix(cr)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Raw data")
+hist(log2(as.matrix(cr)+1),ylab="",las=2,main="Raw data")
+par(mfrow=c(1,1))
+
+# check if any samples need to be discarded based on the number of genes detected
+barplot(colSums(cr>3),ylab="Number of detected genes",las=2)
+abline(h=median(colSums(cr>3)))
+
+# plot for detection rate across genes
+hist(rowSums(cr>3))
+
+# remove genes with low counts
+# what should be the cut off? How many reads in how many samples? 3-5
+keep_genes <- rowSums( cr > 5 ) >= 3
+cf <- cr[keep_genes,]
+sum(keep_genes)
+# Distribution of the filtered counts
+boxplot(log2(as.matrix(cf)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Filtered data")
+
+hist(rowSums(cf>3))
+
+# Since no samples were discarded, the metadata file will remain the same. And we can check that the labels are in the same order in counts and metadata
+
+
+#making sure colnames in cf matches rownames in mr
+all(colnames(cf) %in% rownames(mr))
+
+# are in same order?
+all(colnames(cf) == rownames(mr))
+
+write.csv(cf,"./data/counts_filtered.csv",quote=F)
+
+```
+
+
+# Normalisation w/ DESeq2 from count matrix 
+
+```{r}
+mr$group <- factor(mr$group)
+d <- DESeqDataSetFromMatrix(countData=cf,colData=mr,design=~group + visit)
+
+# DESeq2 Design formula: condition of interest should come last in the formula with the other factors preceding it in any order
+
+d <- DESeq2::estimateSizeFactors(d,type="ratio")
+cd <- log2( counts(d,normalized=TRUE) + 1 ) 
+saveRDS(cd,"data/gene_counts_normalised_deseq2.Rds")
+
+cd <- readRDS("data/gene_counts_normalised_deseq2.Rds")
+boxplot(cd,ylab=expression('Log'[2]~'Read counts'),las=2,main="DESeq2")
+```
+
+
+# Exploratory heatmap & PCA (datacamp)
+```{r}
+# Use DESeq object created above
+# Transform the normalized counts 
+vst <- vst(d, blind=TRUE)
+#vst <- rlog(d, blind = TRUE)
+
+# Extract the vst matrix of transformed counts
+vst_mat <- assay(vst)
+
+# Compute pairwise correlation values (cluster by sample)
+vst_cor_mat <- cor(vst_mat)
+
+# Plot heatmap
+mr <- mr %>% 
+  mutate(visit = as.factor(visit))
+
+pheatmap(vst_cor_mat, annotation = select(mr, visit, group), clustering_method = "ward.D2")
+
+# Plot PCA
+DESeq2::plotPCA(vst, intgroup="group")
+
+```
+
+##VST
+```{r}
+#For the purpose of exploratory analysis such as MDS, PCA, clustering etc, VST (variance-stabilizing-transformation) is recommended
+cv <- as.data.frame(assay(varianceStabilizingTransformation(d,blind=T)),check.names=F)
+#??varianceStabilizingTransformation
+write.csv(cv,"./data/gene_counts_vst.csv",quote=FALSE)
+
+boxplot(cv,ylab=expression('Log'[2]~'Read counts'),las=2,main="VST")
+```
+
+
+# Principal Component Analysis
+
+```{r}
+pca <- prcomp(t(cv), scale=TRUE) 
+#prcomp expect samples-rows, genes-columns, t-function reverses 
+plot(pca$x[,1], pca$x[,2]) # x = PCs
+## make a scree plot to compute PC variance
+pca.var <- pca$sdev^2
+pca.var.per <- round(pca.var/sum(pca.var)*100, 1)
+ 
+barplot(pca.var.per, main="Scree Plot", xlab="Principal Component", ylab="Percent Variation")
+
+## plot showing the PCs and the variation:
+pca.data <- data.frame(Sample=rownames(pca$x),
+  X=pca$x[,1],
+  Y=pca$x[,2])
+pca.data 
+#visit and group columns
+pca.data_join <-  cbind(pca.data, mr[c("visit", "group")])
+
+ggplot(data=pca.data_join, aes(x=X, y=Y, label=Sample)) +
+  geom_point(aes(color=group)) +
+  xlab(paste("PC1 - ", pca.var.per[1], "%", sep="")) +
+  ylab(paste("PC2 - ", pca.var.per[2], "%", sep="")) +
+  theme_bw() +
+  ggtitle("My PCA Graph")
+
+## name of the top 10  genes that contribute most to pc1.
+loading_scores <- pca$rotation[,1]
+gene_scores <- abs(loading_scores) ## get the magnitudes
+gene_score_ranked <- sort(gene_scores, decreasing=TRUE)
+top_10_genes <- names(gene_score_ranked[1:10])
+ 
+top_10_genes ## show the names of the top 10 genes
+ 
+pca$rotation[top_10_genes,1] ## show the scores (and +/- sign)
+```
+
+# Differential Gene Expression Analysis
+
+```{r}
+# create DESeq2 object
+d<- DESeqDataSetFromMatrix(countData=cf,colData=mr,design=~group + visit)
+
+# set factor as reference level?
+d$group <- relevel(d$group, ref = "Neg")
+
+# Run the DESeq2 analysis
+d <- DESeq(d)
+res <- results(d)
+res
+summary(res)
+res_df <- as.data.frame(res)
+
+plotCounts(d, gene="ENSG00000222623", intgroup = 'group')
+
+
+sum(complete.cases(res_df))
+
+res_filter1 = res_df[complete.cases(res_df), ]
+dim(res_filter1)
+
+# add gene names
+annotated_res_filter1 = inner_join(rownames_to_column(res_filter1), gene_list,
+                                  by=c("rowname" = "ensembl_gene_id"))
+rownames(annotated_res_filter1) <- annotated_res_filter1$hgnc_symbol
+dim(annotated_res_filter1)
+
+# Filter results
+# padj 0.05
+# log2FoldChange ± 1
+
+res_filter1$padj < 0.05
+
+res_filter2 = res_filter1[res_filter1$padj < 0.05, ]
+abs(res_filter2$log2FoldChange) > 1
+
+res_filter3 = res_filter2[abs(res_filter2$log2FoldChange) > 1, ]
+dim(res_filter3)
+
+nrow(res_filter3)
+
+## distribution of unadjusted p-values
+hist(res$pvalue,main="Pval distribution",xlab="P-values")
+
+## lfcShrink, extra step for more accurate log2foldchanges
+
+#contrast
+#resultsNames(d)
+#results(dm contrast = c("group", "levels to compare", "levels to compare"))
+
+
+```
+
+#Visualization plot of DEG
+
+```{r}
+#mean counts vs variance plot
+dm <- apply(cf,1,mean)
+dv <- apply(cf,1,var)
+
+ggplot(data.frame(mean=log10(dm+1),var=log10(dv+1)),
+       aes(mean,var))+
+  geom_point(alpha=0.2)+
+  geom_smooth(method="lm")+
+  labs(x=expression('Log'[10]~'Mean counts'),y=expression('Log'[10]~'Variance'))+
+  theme_bw()
+
+#Plot dispersion
+plotDispEsts(d)
+
+#MA plot
+DESeq2::plotMA(res)
+
+#Volcano plot
+
+res_filter1$test = res_filter1$padj < 0.05 & abs(res_filter1$log2FoldChange) > 1
+
+ggplot()+
+  geom_point(data=as.data.frame(res_filter1),aes(x=log2FoldChange,y=-log10(padj)),col="grey80",alpha=0.5)+
+  geom_point(data=filter(as.data.frame(res_filter1),padj<0.05),aes(x=log2FoldChange,y=-log10(padj)),col="red",alpha=0.7)+
+  geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
+  geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) + 
+  theme_minimal()
+
+#Volcano plot
+volcano_plot <- ggplot(res_filter1, aes(x=log2FoldChange,y=-log10(padj))) +
+  geom_point(aes(colour=test), size=1, alpha=0.3) +
+  scale_color_manual(values = c("grey80", 'red')) +
+  xlab(expression("Fold Change (Log"[2]*")")) +
+  ylab(expression("Adjusted P value (Log"[10]*")")) +
+  geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
+  geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
+  xlim(-7,7) +
+  theme_minimal() +
+  theme(legend.position = 'none')
+print(volcano_plot)
+
+#ggplotly(volcano_plot)
+
+  #Counts plot
+plotCounts(d,gene=rownames(res)[1],intgroup="group",normalized=F)
+plotCounts(d,gene=rownames(res)[1],intgroup="group",normalized=T)
+```
+

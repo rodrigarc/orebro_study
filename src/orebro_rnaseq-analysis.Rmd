@@ -72,7 +72,7 @@ mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
 
 ```{r}
 #reading data
-countTable <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus.txt", header = TRUE, sep = "\t") %>%
+countTable <- data.table::fread("data/proces-data_core-facility/subreadCounts_hg38ens_minus.txt", header = TRUE, sep = "\t") %>%
   as.data.frame()
 
 ## renaming genes based on emsembl
@@ -92,7 +92,7 @@ G_list <- G_list[G_list$hgnc_symbol != "",]
 rownames(countTable) <- countTable$Geneid
 countTable <- countTable %>% dplyr::select(-c(Geneid,Chr, Start, End, Strand, Length))
 
-sampleTable <- read.table("../data/test_data/sample_metadata.tsv", as.is = TRUE, header = FALSE, sep = "\t") 
+sampleTable <- read.table(("..data/proces-data_core-facility/sample_metadata.csv", as.is = TRUE, header = FALSE, sep = "\t") 
 
 sampleTable <- data.frame(do.call("rbind", strsplit(as.character(sampleTable$V2), "_", fixed = TRUE)))
 colnames(sampleTable)  <- c("sample_status","sample_number", "age","sex" , "ICUstat")
