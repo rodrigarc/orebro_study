@@ -3,3 +3,10 @@
 /doc/*
 *DS_Store
 src/.Rhistory
+*.gz
+*.log
+*.json
+*.zip
+*.tsv
+*.txt
+*.sf
