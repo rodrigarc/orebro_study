@@ -50,7 +50,6 @@ library(forcats)
 library(caret)
 library(C50)
 library(mgsub)
-library(dplyr) 
 library(DESeq2) 
 library(pheatmap) 
 library(ggplot2) 
@@ -63,8 +62,11 @@ library(gridExtra)
 library(stringr)
 library(ggVennDiagram)
 library(biomaRt)
+library(dplyr) 
+library(ensembldb)
+library(EnsDb.Hsapiens.v86)
+library(factoextra)
 
-mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
 ```
 
 ## Download and load data
@@ -72,49 +74,23 @@ mart <- useDataset("hsapiens_gene_ensembl", useMart("ensembl"))
 
 ```{r}
 #reading data
-countTable <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus.txt", header = TRUE, sep = "\t") %>%
-  as.data.frame()
+countTable <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>%  as.data.frame()
 
-## renaming genes based on emsembl
 
-genes <- countTable$Geneid
-G_list <- getBM(filters= "ensembl_gene_id", 
-                attributes= c("ensembl_gene_id", 
-                              "hgnc_symbol"),
-                values=genes,
-                mart= mart)
-G_list <- G_list[G_list$hgnc_symbol != "",]
+## renaming genes based on emsembl annotation
+edb <- EnsDb.Hsapiens.v86
+edb_genes <- genes(edb) %>% as.data.frame()
 
-#countTable <- countTable %>%
-#  dplyr::select(-c(Chr, Start, End, Strand, Length)) %>%
-#  dplyr::mutate(Geneid = plyr::mapvalues(x = countTable$Geneid, from = G_list$ensembl_gene_id, to = G_list$hgnc_symbol,warn_missing = FALSE))
+countTable <- countTable %>%
+  dplyr::select(-c(Chr, Start, End, Strand, Length)) %>%
+  dplyr::mutate(Geneid = plyr::mapvalues(x = countTable$Geneid, from = edb_genes$gene_id, to = edb_genes$symbol, warn_missing = FALSE))
 
+## aggregate and sum up genes with same gene symbol, which were basically non-coding RNAs
+countTable <- aggregate(countTable[,-1], list(Geneid=countTable[,1]), FUN = sum)
 rownames(countTable) <- countTable$Geneid
-countTable <- countTable %>% dplyr::select(-c(Geneid,Chr, Start, End, Strand, Length))
 
-sampleTable <- read.table("../data/test_data/sample_metadata.tsv", as.is = TRUE, header = FALSE, sep = "\t") 
-
-sampleTable <- data.frame(do.call("rbind", strsplit(as.character(sampleTable$V2), "_", fixed = TRUE)))
-colnames(sampleTable)  <- c("sample_status","sample_number", "age","sex" , "ICUstat")
-
-# processing data and removing data without complete metadata
-sampleTable <- sampleTable %>%
-  mutate(sample_number = sprintf("%01s", as.numeric(sampleTable$sample_number)),
-    sample = ifelse(grepl("NONCOVID", sample_status,fixed = TRUE),
-                         paste0("NC", sample_number),
-                    paste0("C", sample_number)),
-    age = as.numeric(gsub("y|:","",age)),
-    sex = factor(sub("unknown","",sex)),
-    ICUstat = factor(ICUstat),
-    age_bin =  factor(ifelse(age > 50, "old", "young"))) %>% 
-  filter(age != "", sex != "", sample_status == "COVID")
-
-sampleTable$sex <- droplevels(sampleTable$sex)  
-sampleTable$age_bin <- droplevels(sampleTable$age_bin)
-
-#Inspect dataset dimensions
-dim(countTable)
-dim(sampleTable)
+sampleTable <- read.table("../data/proces-data_core-facility/sample_metadata.csv", sep = ",", header = TRUE) %>%
+  mutate(dose = plyr::mapvalues(visit, from = c(1,2,4,5), to = c("0_dose1","24_dose1","0_dose2","24_dose2")))
 
 ```
 
@@ -124,10 +100,11 @@ Matching metadata to countTable and plotting the raw counts histogram for first 
 
 ```{r}
 #Synchonize count data with sample table
-countTable <- countTable[, pmatch(sampleTable$sample, colnames(countTable))]
-colnames(countTable) <- sampleTable$sample
+countTable <- countTable[, pmatch(sampleTable$sample_ID, colnames(countTable))]
+#feel free to change smaple name accoding to what you think is best
+colnames(countTable) <- sampleTable$sample_ID
 
-#Filter low counts
+#Visualize low counts
 counts <- rowMeans(countTable)
 hist(counts)
 ```
@@ -148,15 +125,13 @@ countTable <- countTable[meanLog2CPM > 1, ]
 
 ## DESeq object creation and data QC
 
-Generating the DESeq dataset by rounding the values of the countTable, since the data is based on RNA-Seq by Expectation-Maximization (RSEM) algorithm. 
+Generating the DESeq dataset.
 
 ```{r}
 # create DESeq object
-dds <- DESeqDataSetFromMatrix(as.matrix(round(countTable)),
-                              design = ~ 0 + sex + ICUstat,
+dds <- DESeqDataSetFromMatrix(as.matrix(countTable),
+                              design = ~ dose + group,
                               colData = sampleTable)
-
-
 
 #Normalize
 normCounts <- vst(dds, blind = TRUE) 
@@ -167,10 +142,9 @@ hist(assay(normCounts))
 #Sample heatmap
 sampleDist <- cor(assay(dds), method = "spearman") 
 
-Metadata <- data.frame(sampleTable$ICUstat, sampleTable$age, sampleTable$sex, sampleTable$age_bin)
-names(Metadata) <- c("ICUstat","age", "sex", "age_bin")
-Metadata$age <- as.numeric(Metadata$age)
-rownames(Metadata) <- sampleTable$sample
+Metadata <- data.frame(sampleTable$group, sampleTable$dose)
+names(Metadata) <- c("Group","Dose")
+rownames(Metadata) <- sampleTable$sample_ID
 
 ```
 
@@ -179,13 +153,14 @@ rownames(Metadata) <- sampleTable$sample
 colors<-colorRampPalette(rev(brewer.pal(n=7,name="RdBu")))(255)
 
 {
-  pheatmap(sampleDist, color=colors, 
+  pheatmap(sampleDist, 
+           color = colors,
            clustering_distance_rows = as.dist(1 - sampleDist),
            clustering_distance_cols = as.dist(1 - sampleDist), 
            show_rownames = F,
            show_colnames = F,
-           annotation_col = Metadata, cutree_cols = 6, cutree_rows = 6
-  )
+           clustering_method = "ward.D2",
+           annotation_col = Metadata)
 }
 
 
@@ -200,23 +175,32 @@ Dimensionality reduction for evaluating outliers and global sample clusters for 
 
 #Sample PCA
 pcaRes <- prcomp(t(assay(normCounts)))
-varExp <- round(pcaRes$sdev^2 / sum(pcaRes$sdev^2) * 100) 
+varExp <- round(summary(pcaRes)[[1]],digits = 2)
 
 pcaDF <- data.frame(
   PC1 = pcaRes$x[, 1],
   PC2 = pcaRes$x[, 2],
-  ICUstat = sampleTable$ICUstat,
-  Sample = sampleTable$sample)
+  Group = sampleTable$group,
+  Sample = sampleTable$sample_ID,
+  Dose = sampleTable$dose)
 
-pcaPlot <- ggplot( data = pcaDF, mapping = aes(x = PC1, y = PC2, color = ICUstat, label = Sample)) + geom_point(size = 3) +
+pcaPlot <- ggplot( pcaDF, mapping = aes(x = PC1, y = PC2, color = Group, label = Sample)) + 
+  geom_point(aes(shape = Dose), size = 3) +
   labs(x = paste0("PC1 (", varExp[1], " %)"), y = paste0("PC2 (", varExp[2], " %)")) + 
-  theme_minimal() +
   theme(axis.text = element_text(size = 12), legend.text = element_text(size = 10)) +
-  scale_color_manual(values = brewer.pal(3, "Accent")) 
+  scale_color_manual(values = brewer.pal(3, "Accent")) +
+  cowplot::theme_cowplot()
 
 print(pcaPlot)
 
-
+## exploring which variables contribue the most for each PC
+var <- get_pca_var(pcaRes)
+var$contrib %>%
+  as.data.frame() %>%
+  arrange(desc(Dim.1)) %>%
+  head()
+# many are related to sex, thus for the later analysis we should remove those and also normalize per sex the counts
+  
 ```
 
 
@@ -224,9 +208,9 @@ print(pcaPlot)
 
 ```{r}
 #Step 1: Define design matrix
-designMatrix <- model.matrix(~ 0 + ICUstat + sex, data = sampleTable) 
+designMatrix <- model.matrix(~ 0 + dose, data = sampleTable) 
 #designMatrix[1:5, 1:5]
-
+designMatrix
 #Step 2: Define contrast matrix
 contrastMatrix <- makeContrasts(ICUstatICU - ICUstatNonICU , levels=make.names(colnames(designMatrix)))
 
@@ -319,9 +303,9 @@ for(res in names(enrichmentRes)){
 ```
 
 
-# Testing different variables interactions
+# Variables interactions
 
-## ICU stat, sex, age bin (> 50 vs< 50), and age_bin * sex.
+## COVID-19 exposition, dose, sex, age, and sex.
 
 ```{r echo=FALSE}
 designMatrix <- model.matrix(~ 0 + ICUstat + sex + age_bin + age_bin*sex, data = sampleTable) 
@@ -386,238 +370,6 @@ for(res in names(enrichmentRes)){
 {
   plot(arrangeGrob(grobs = enrichPlots))
 }
-```
-
-## ICU status, sex, and age bin (> 50 vs< 50)
-
-```{r echo=FALSE}
-designMatrix <- model.matrix(~ 0 + ICUstat + sex + age_bin, data = sampleTable) 
-
-#Step 2: Define contrast matrix
-contrastMatrix <- makeContrasts(ICUstatICU - ICUstatNonICU , levels=make.names(colnames(designMatrix)))
-
-
-#Step 3: Fit model
-dge <- DGEList(countTable)
-dge <- calcNormFactors(dge)
-dge <- estimateDisp(dge, designMatrix, robust = TRUE) 
-fit <- glmQLFit(dge, designMatrix, robust = TRUE)
-
-#Step 4: Perform hypothesis testing
-res <- glmQLFTest(fit, contrast = contrastMatrix)
-res <- topTags(res, n = nrow(countTable))
-sigRes <- subset(res$table, FDR < 0.05 & abs(logFC) > 1) 
-#Visualize results
-volcanoPlot <- ggplot(res$table, aes(x = logFC, y = -log10(FDR),
-                                     color = ifelse(FDR < 0.05 & abs(logFC) > 1, "darkred", "grey"))) +
-  geom_point() +
-  xlab(expression("Fold Change (Log"[2]*")")) +
-  ylab(expression("Adjusted P value (Log"[10]*")")) +
-  geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
-  geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) + 
-  theme_minimal() +
-  theme(legend.position = "none") +
-  scale_colour_manual(values = c("darkred", "grey", "steelblue")) + 
-  geom_text_repel(aes(x = logFC, y = -log10(FDR), 
-                      label = rownames(res$table)[1:10],
-                      size = 2, color = "steelblue"),
-                  data = res$table[1:10, ])
-print(volcanoPlot)
-```
-
-### Enrichment plot
-```{r echo=FALSE}
-#Visualize significant terms
-enrichPlots <- list()
-
-for(res in names(enrichmentRes)){
-  plotDF <- enrichmentRes[[res]][1:10, ]
-  plotDF$Term = str_trunc(plotDF$Term, 45)
-  plotDF$Term <- factor(plotDF$Term, levels = rev(plotDF$Term))
-  
-  enrichPlot <- ggplot(plotDF, aes(x = Term, y = -log10(Adjusted.P.value))) +
-    geom_bar(stat = "identity", width = 0.05) + geom_point(size = 3) +
-    theme_minimal() +
-    theme(text = element_text(size = 10),
-          plot.title = element_text(hjust = (5 / nchar(res)) * 2), 
-          plot.margin = margin(t = 5, r = 50, b = 5, unit = "pt"), 
-          axis.text.y = element_text(size = 8)) +
-    coord_flip() +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") + 
-    theme_bw() +
-    labs(title = res, y = expression("Adjusted P value, Log"[10]*""))
-  enrichPlots[[res]] <- enrichPlot 
-  }
-
-{
-  plot(arrangeGrob(grobs = enrichPlots))
-}
-```
-
-## ICU status and age bin (> 50 vs< 50)
-
-```{r echo=FALSE}
-designMatrix <- model.matrix(~ 0 + ICUstat + age_bin, data = sampleTable) 
-
-#Step 2: Define contrast matrix
-contrastMatrix <- makeContrasts(ICUstatICU - ICUstatNonICU , levels=make.names(colnames(designMatrix)))
-
-
-#Step 3: Fit model
-dge <- DGEList(countTable)
-dge <- calcNormFactors(dge)
-dge <- estimateDisp(dge, designMatrix, robust = TRUE) 
-fit <- glmQLFit(dge, designMatrix, robust = TRUE)
-
-#Step 4: Perform hypothesis testing
-res <- glmQLFTest(fit, contrast = contrastMatrix)
-res <- topTags(res, n = nrow(countTable))
-sigRes <- subset(res$table, FDR < 0.05 & abs(logFC) > 1) 
-#Visualize results
-volcanoPlot <- ggplot(res$table, aes(x = logFC, y = -log10(FDR),
-                                     color = ifelse(FDR < 0.05 & abs(logFC) > 1, "darkred", "grey"))) +
-  geom_point() +
-  xlab(expression("Fold Change (Log"[2]*")")) +
-  ylab(expression("Adjusted P value (Log"[10]*")")) +
-  geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
-  geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) + 
-  theme_minimal() +
-  theme(legend.position = "none") +
-  scale_colour_manual(values = c("darkred", "grey", "steelblue")) + 
-  geom_text_repel(aes(x = logFC, y = -log10(FDR), 
-                      label = rownames(res$table)[1:10],
-                      size = 2, color = "steelblue"),
-                  data = res$table[1:10, ])
-print(volcanoPlot)
-```
-
-### Enrichment plot
-```{r echo=FALSE}
-#Visualize significant terms
-enrichPlots <- list()
-
-for(res in names(enrichmentRes)){
-  plotDF <- enrichmentRes[[res]][1:10, ]
-  plotDF$Term = str_trunc(plotDF$Term, 45)
-  plotDF$Term <- factor(plotDF$Term, levels = rev(plotDF$Term))
-  
-  enrichPlot <- ggplot(plotDF, aes(x = Term, y = -log10(Adjusted.P.value))) +
-    geom_bar(stat = "identity", width = 0.05) + geom_point(size = 3) +
-    theme_minimal() +
-    theme(text = element_text(size = 10),
-          plot.title = element_text(hjust = (5 / nchar(res)) * 2), 
-          plot.margin = margin(t = 5, r = 50, b = 5, unit = "pt"), 
-          axis.text.y = element_text(size = 8)) +
-    coord_flip() +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") + 
-    theme_bw() +
-    labs(title = res, y = expression("Adjusted P value, Log"[10]*""))
-  enrichPlots[[res]] <- enrichPlot 
-  }
-
-{
-  plot(arrangeGrob(grobs = enrichPlots))
-}
-```
-
-## Only ICU status
-
-```{r echo=FALSE}
-designMatrix_4 <- model.matrix(~ 0 + ICUstat, data = sampleTable)
-
-#Step 2: Define contrast matrix
-contrastMatrix <- makeContrasts(ICUstatICU - ICUstatNonICU , levels=make.names(colnames(designMatrix)))
-
-
-#Step 3: Fit model
-dge <- DGEList(countTable)
-dge <- calcNormFactors(dge)
-dge <- estimateDisp(dge, designMatrix, robust = TRUE) 
-fit <- glmQLFit(dge, designMatrix, robust = TRUE)
-
-#Step 4: Perform hypothesis testing
-res <- glmQLFTest(fit, contrast = contrastMatrix)
-res <- topTags(res, n = nrow(countTable))
-sigRes <- subset(res$table, FDR < 0.05 & abs(logFC) > 1) 
-
-#Visualize results
-volcanoPlot <- ggplot(res$table, aes(x = logFC, y = -log10(FDR),
-                                     color = ifelse(FDR < 0.05 & abs(logFC) > 1, "darkred", "grey"))) +
-  geom_point() +
-  xlab(expression("Fold Change (Log"[2]*")")) +
-  ylab(expression("Adjusted P value (Log"[10]*")")) +
-  geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
-  geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) + 
-  theme_minimal() +
-  theme(legend.position = "none") +
-  scale_colour_manual(values = c("darkred", "grey", "steelblue")) + 
-  geom_text_repel(aes(x = logFC, y = -log10(FDR), 
-                      label = rownames(res$table)[1:10],
-                      size = 2, color = "steelblue"),
-                  data = res$table[1:10, ])
-print(volcanoPlot)
-```
-
-### Enrichment plot
-```{r echo=FALSE}
-#Visualize significant terms
-enrichPlots <- list()
-
-for(res in names(enrichmentRes)){
-  plotDF <- enrichmentRes[[res]][1:10, ]
-  plotDF$Term = str_trunc(plotDF$Term, 45)
-  plotDF$Term <- factor(plotDF$Term, levels = rev(plotDF$Term))
-  
-  enrichPlot <- ggplot(plotDF, aes(x = Term, y = -log10(Adjusted.P.value))) +
-    geom_bar(stat = "identity", width = 0.05) + geom_point(size = 3) +
-    theme_minimal() +
-    theme(text = element_text(size = 10),
-          plot.title = element_text(hjust = (5 / nchar(res)) * 2), 
-          plot.margin = margin(t = 5, r = 50, b = 5, unit = "pt"), 
-          axis.text.y = element_text(size = 8)) +
-    coord_flip() +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") + 
-    theme_bw() +
-    labs(title = res, y = expression("Adjusted P value, Log"[10]*""))
-  enrichPlots[[res]] <- enrichPlot 
-  }
-
-{
-  plot(arrangeGrob(grobs = enrichPlots))
-}
-```
-
-## Comparing Limma vs DESeq2
-
-Comparing the output from Voom (limma) and DEseq2 with logFC> 1 and p<0.05
-
-```{r Lets try Limma}
-d0 <- DGEList(countTable)
-d0 <- calcNormFactors(d0)
-d <- d0 
-
-snames <- colnames(countTable) # Sample names
-
-ICUstat<-sampleTable$ICUstat
-Sex<-sampleTable$sex
-group<-interaction(ICUstat, Sex)
-
-mm <- model.matrix(~ICUstat*Sex)
-y <- voom(d, mm, plot = F)
-fit <- lmFit(y, mm)
-tmp <- contrasts.fit(fit, coef = 2) # Directly test second coefficient
-tmp <- eBayes(tmp)
-top.table <- topTable(tmp, sort.by = "logFC", n = Inf)
-
-top.table <- top.table %>%
-  filter(logFC > 1, adj.P.Val < 0.05)
-```
-
-## Venn diagram comparing DEGs found using Voom and DESeq2
-
-```{r}
-x<-list(rownames(top.table), rownames(sigRes))
-ggVennDiagram(x, category.names=c("Voom", "DESeq2"))
 ```
 
 # Prepare data for machine learning algorithms
