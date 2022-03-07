@@ -58,7 +58,7 @@ library(tibble)
 #reading data
 sampleTable <- read.csv("data/proces-data_core-facility/sample_metadata.csv")
 #gonna add more 
-countTable <- data.table::fread("data/proces-data_core-facility/subreadCounts_hg38ens_minus.txt", header = TRUE, sep = "\t") %>% 
+countTable <- data.table::fread("data/proces-data_core-facility/subreadCounts_hg38ens_minus.txt", header = TRUE, sep = "\t")x§ %>% 
   as.data.frame()
 
 ```
