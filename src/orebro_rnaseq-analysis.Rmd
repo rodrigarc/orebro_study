@@ -43,7 +43,6 @@ options(stringsAsFactors = FALSE)
 ## Loading libraries
 
 ```{r}
-#Load libraries
 #if you do not have libraries, they are located in either CRAN or Bioconductor
 library(kableExtra)
 library(forcats)
@@ -66,6 +65,8 @@ library(dplyr)
 library(ensembldb)
 library(EnsDb.Hsapiens.v86)
 library(factoextra)
+library(plotly)
+library(tibble)
 
 ```
 
