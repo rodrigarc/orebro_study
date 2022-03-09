@@ -77,6 +77,8 @@ library(tibble)
 #reading data
 countTable <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>%  as.data.frame()
 
+sampleTable <- read.table("../data/proces-data_core-facility/sample_metadata.csv", sep = ",", header = TRUE) %>%
+  mutate(dose = plyr::mapvalues(visit, from = c(1,2,4,5), to = c("0_dose1","24_dose1","0_dose2","24_dose2")))
 
 ## renaming genes based on emsembl annotation
 edb <- EnsDb.Hsapiens.v86
@@ -89,9 +91,7 @@ countTable <- countTable %>%
 ## aggregate and sum up genes with same gene symbol, which were basically non-coding RNAs
 countTable <- aggregate(countTable[,-1], list(Geneid=countTable[,1]), FUN = sum)
 rownames(countTable) <- countTable$Geneid
-
-sampleTable <- read.table("../data/proces-data_core-facility/sample_metadata.csv", sep = ",", header = TRUE) %>%
-  mutate(dose = plyr::mapvalues(visit, from = c(1,2,4,5), to = c("0_dose1","24_dose1","0_dose2","24_dose2")))
+countTable <- dplyr::select(countTable, -c(Geneid))
 
 ```
 
