@@ -84,44 +84,58 @@ sampleTable <- read.table("../data/proces-data_core-facility/sample_metadata.csv
 edb <- EnsDb.Hsapiens.v86
 edb_genes <- genes(edb) %>% as.data.frame()
 
-countTable <- countTable %>%
+counts_raw <- countTable %>%
   dplyr::select(-c(Chr, Start, End, Strand, Length)) %>%
   dplyr::mutate(Geneid = plyr::mapvalues(x = countTable$Geneid, from = edb_genes$gene_id, to = edb_genes$symbol, warn_missing = FALSE))
 
 ## aggregate and sum up genes with same gene symbol, which were basically non-coding RNAs
-countTable <- aggregate(countTable[,-1], list(Geneid=countTable[,1]), FUN = sum)
-rownames(countTable) <- countTable$Geneid
-countTable <- dplyr::select(countTable, -c(Geneid))
+counts_raw <- aggregate(counts_raw[,-1], list(Geneid=counts_raw[,1]), FUN = sum)
+rownames(counts_raw) <- counts_raw$Geneid
+counts_raw <- dplyr::select(counts_raw, -c(Geneid))
 
 ```
 
-## Inspect data
+## Inspect raw data
 
 Matching metadata to countTable and plotting the raw counts histogram for first visual inspection.  
 
 ```{r}
 #Synchonize count data with sample table
-countTable <- countTable[, pmatch(sampleTable$sample_ID, colnames(countTable))]
-#feel free to change smaple name accoding to what you think is best
-colnames(countTable) <- sampleTable$sample_ID
+counts_raw <- counts_raw[, pmatch(sampleTable$sample_ID, colnames(counts_raw))]
+colnames(counts_raw) <- sampleTable$sample_ID
+all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
 
-#Visualize low counts
-counts <- rowMeans(countTable)
-hist(counts)
+#Visualize distribution of raw counts w/ boxplot and density plot
+rafalib::mypar(1,2,mar=c(6,3,3,2))
+boxplot(log2(as.matrix(counts_raw)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Raw data")
+hist(log2(as.matrix(counts_raw)+1),ylab="",las=2,main="Raw data")
+par(mfrow=c(1,1))
 ```
 
-## Filtering data
+## Filter data
 
 Removing reads with the log2 of the counts per million (cpm) lower than 1.
 
 ```{r}
+#See if sample need to be discarded based on the number of genes detected -> no
+barplot(colSums(counts_raw>3),ylab="Number of detected genes",las=2)
+abline(h=median(colSums(counts_raw>3)))
 
 #Filter low counts
-meanLog2CPM <- rowMeans(log2(cpm(countTable) + 1)) 
+meanLog2CPM <- rowMeans(log2(cpm(counts_raw) + 1)) 
 hist(meanLog2CPM)
 
-countTable <- countTable[meanLog2CPM > 1, ] 
+counts_filtered <- counts_raw[meanLog2CPM > 1, ] 
 
+#Plot distribution of the filtered counts
+rafalib::mypar(1,2,mar=c(6,3,3,2))
+boxplot(log2(as.matrix(counts_filtered)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Filtered data")
+hist(log2(as.matrix(counts_filtered)+1),ylab="",las=2,main="Filtered data")
+par(mfrow=c(1,1))
+
+#Plot for detection rate across genes for raw and filtered counts
+hist(rowSums(counts_raw>3))
+hist(rowSums(counts_filtered>3))
 ```
 
 ## DESeq object creation and data QC
