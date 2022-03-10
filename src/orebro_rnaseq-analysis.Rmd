@@ -33,9 +33,10 @@ knitr::opts_chunk$set(warning = FALSE,
                      fig.pos = "H")
 
 result.dir <- paste0("results/",Sys.Date(),"/")
-
+figures.dir <- paste0("results/",Sys.Date(),"/", "figures/")
 ## creates result.dir with date in if not existent
 ifelse(isFALSE(dir.exists(paste0("../",result.dir))), dir.create(paste0("../",result.dir),recursive = TRUE),"Result directory for today exists already!")
+ifelse(isFALSE(dir.exists(paste0("../",figures.dir))), dir.create(paste0("../",figures.dir),recursive = TRUE),"Result directory for today exists already!")
 
 options(stringsAsFactors = FALSE) 
 ```
@@ -60,11 +61,11 @@ library(enrichR)
 library(gridExtra) 
 library(stringr)
 library(ggVennDiagram)
-library(biomaRt)
 library(dplyr) 
 library(ensembldb)
 library(EnsDb.Hsapiens.v86)
 library(factoextra)
+library(rafalib)
 library(plotly)
 library(tibble)
 
@@ -75,7 +76,7 @@ library(tibble)
 
 ```{r}
 #reading data
-countTable <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>%  as.data.frame()
+counts_raw <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>%  as.data.frame()
 
 sampleTable <- read.table("../data/proces-data_core-facility/sample_metadata.csv", sep = ",", header = TRUE) %>%
   mutate(dose = plyr::mapvalues(visit, from = c(1,2,4,5), to = c("0_dose1","24_dose1","0_dose2","24_dose2")))
@@ -84,9 +85,9 @@ sampleTable <- read.table("../data/proces-data_core-facility/sample_metadata.csv
 edb <- EnsDb.Hsapiens.v86
 edb_genes <- genes(edb) %>% as.data.frame()
 
-counts_raw <- countTable %>%
+counts_raw <- counts_raw %>%
   dplyr::select(-c(Chr, Start, End, Strand, Length)) %>%
-  dplyr::mutate(Geneid = plyr::mapvalues(x = countTable$Geneid, from = edb_genes$gene_id, to = edb_genes$symbol, warn_missing = FALSE))
+  dplyr::mutate(Geneid = plyr::mapvalues(x = counts_raw$Geneid, from = edb_genes$gene_id, to = edb_genes$symbol, warn_missing = FALSE))
 
 ## aggregate and sum up genes with same gene symbol, which were basically non-coding RNAs
 counts_raw <- aggregate(counts_raw[,-1], list(Geneid=counts_raw[,1]), FUN = sum)
@@ -106,10 +107,14 @@ colnames(counts_raw) <- sampleTable$sample_ID
 all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
 
 #Visualize distribution of raw counts w/ boxplot and density plot
-rafalib::mypar(1,2,mar=c(6,3,3,2))
-boxplot(log2(as.matrix(counts_raw)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Raw data")
-hist(log2(as.matrix(counts_raw)+1),ylab="",las=2,main="Raw data")
-par(mfrow=c(1,1))
+{
+  pdf(paste0("../", figures.dir,"raw_counts_QC.pdf"), width = 10,  height = 8, compress = TRUE )
+  rafalib::mypar(1,2,mar=c(10,3,3,2))
+  boxplot(log2(as.matrix(counts_raw)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Raw data")
+  hist(log2(as.matrix(counts_raw)+1),ylab="",las=2,main="Raw data")
+  par(mfrow=c(1,1))
+  dev.off()
+}
 ```
 
 ## Filter data
@@ -118,9 +123,13 @@ Removing reads with the log2 of the counts per million (cpm) lower than 1.
 
 ```{r}
 #See if sample need to be discarded based on the number of genes detected -> no
-barplot(colSums(counts_raw>3),ylab="Number of detected genes",las=2)
-abline(h=median(colSums(counts_raw>3)))
-
+{
+  pdf(paste0("../", figures.dir,"number_detected_genes.pdf"), width = 10,  height = 8, compress = TRUE )
+  par(mar=c(10,4,3,4))
+  barplot(colSums(counts_raw>3),ylab="Number of detected genes",las=2)
+  abline(h=median(colSums(counts_raw>3)))
+  dev.off()
+}
 #Filter low counts
 meanLog2CPM <- rowMeans(log2(cpm(counts_raw) + 1)) 
 hist(meanLog2CPM)
@@ -128,11 +137,14 @@ hist(meanLog2CPM)
 counts_filtered <- counts_raw[meanLog2CPM > 1, ] 
 
 #Plot distribution of the filtered counts
-rafalib::mypar(1,2,mar=c(6,3,3,2))
-boxplot(log2(as.matrix(counts_filtered)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Filtered data")
-hist(log2(as.matrix(counts_filtered)+1),ylab="",las=2,main="Filtered data")
-par(mfrow=c(1,1))
-
+{
+  pdf(paste0("../", figures.dir,"filtered_counts.pdf"), width = 10,  height = 8, compress = TRUE )
+  rafalib::mypar(1,2,mar=c(10,3,3,2))
+  boxplot(log2(as.matrix(counts_filtered)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Filtered data")
+  hist(log2(as.matrix(counts_filtered)+1),ylab="",las=2,main="Filtered data")
+  par(mfrow=c(1,1))
+  dev.off()
+}
 #Plot for detection rate across genes for raw and filtered counts
 hist(rowSums(counts_raw>3))
 hist(rowSums(counts_filtered>3))
@@ -147,6 +159,9 @@ Generating the DESeq dataset.
 dds <- DESeqDataSetFromMatrix(countData = counts_filtered,
                               colData = as.data.frame(sampleTable),
                               design = ~ group + dose)
+dds <- DESeqDataSetFromMatrix(counts_raw,
+                              design = ~ dose + group,
+                              colData = sampleTable)
 
 #Normalise w/ variance stabilizing transformation
 counts_vst_normalized <- vst(dds, blind = TRUE)
