@@ -100,7 +100,7 @@ counts_raw <- dplyr::select(counts_raw, -c(Geneid))
 Matching metadata to countTable and plotting the raw counts histogram for first visual inspection.  
 
 ```{r}
-#Synchonize count data with sample table
+#Synchronize count data with sample table
 counts_raw <- counts_raw[, pmatch(sampleTable$sample_ID, colnames(counts_raw))]
 colnames(counts_raw) <- sampleTable$sample_ID
 all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
@@ -138,33 +138,36 @@ hist(rowSums(counts_raw>3))
 hist(rowSums(counts_filtered>3))
 ```
 
-## DESeq object creation and data QC
+## DESeq object creation, Normalisation and data Quality Control
 
 Generating the DESeq dataset.
 
 ```{r}
 # create DESeq object
-dds <- DESeqDataSetFromMatrix(as.matrix(countTable),
-                              design = ~ dose + group,
-                              colData = sampleTable)
+dds <- DESeqDataSetFromMatrix(countData = counts_filtered,
+                              colData = as.data.frame(sampleTable),
+                              design = ~ group + dose)
 
-#Normalize
-normCounts <- vst(dds, blind = TRUE) 
+#Normalise w/ variance stabilizing transformation
+counts_vst_normalized <- vst(dds, blind = TRUE)
 
 #Distribution
-hist(assay(normCounts))
+vst_matrix <- assay(counts_vst_normalized) 
+hist(vst_matrix)
+boxplot(vst_matrix ,ylab=expression('Log'[2]~'Read counts'),las=2,main="VST")
+```
 
-#Sample heatmap
-sampleDist <- cor(assay(dds), method = "spearman") 
+## Heatmap
+
+```{r}
+# Sample heatmap
+sampleDist <- cor(vst_matrix, method = "spearman") 
 
 Metadata <- data.frame(sampleTable$group, sampleTable$dose)
 names(Metadata) <- c("Group","Dose")
 rownames(Metadata) <- sampleTable$sample_ID
 
-```
-
-```{r}
-
+# Plot heatmap
 colors<-colorRampPalette(rev(brewer.pal(n=7,name="RdBu")))(255)
 
 {
