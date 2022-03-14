@@ -119,10 +119,9 @@ all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
 
 ## Filter data
 
-Removing reads with the log2 of the counts per million (cpm) lower than 1.
+Plot detection of genes across samples. All samples are more or less close to average so we don't need to discard any samples.
 
 ```{r}
-#See if sample need to be discarded based on the number of genes detected -> no
 {
   pdf(paste0("../", figures.dir,"number_detected_genes.pdf"), width = 10,  height = 8, compress = TRUE )
   par(mar=c(10,4,3,4))
@@ -130,20 +129,33 @@ Removing reads with the log2 of the counts per million (cpm) lower than 1.
   abline(h=median(colSums(counts_raw>3)))
   dev.off()
 }
-#Filter low counts
-meanLog2CPM <- rowMeans(log2(cpm(counts_raw) + 1)) 
-hist(meanLog2CPM)
-
-counts_filtered <- counts_raw[meanLog2CPM > 1, ] 
-
-
-#Plot for detection rate across genes for raw and filtered counts
-hist(rowSums(counts_raw>3))
-hist(rowSums(counts_filtered>3))
 ```
 
+Removing reads with the log2 of the counts per million (cpm) lower than 1.
+
 ```{r}
-#Plot distribution of the filtered counts
+#Filter low counts
+meanLog2CPM <- rowMeans(log2(cpm(counts_raw) + 1)) 
+counts_filtered <- counts_raw[meanLog2CPM > 1, ] 
+
+```
+
+Plot detection rate across genes for raw and filtered counts
+
+```{r}
+{
+  pdf(paste0("../", figures.dir,"detection_rate_raw_filtered.pdf"), width = 10,  height = 8, compress = TRUE )
+  par(mar=c(10,4,3,4))
+  hist(rowSums(counts_raw>3))
+  hist(rowSums(counts_filtered>3))
+  par(mfrow=c(1,1))
+  dev.off()
+}
+```
+
+Plot distribution of the filtered counts
+
+```{r}
 {
   pdf(paste0("../", figures.dir,"filtered_counts.pdf"), width = 10,  height = 8, compress = TRUE )
   rafalib::mypar(1,2,mar=c(10,3,3,2))
