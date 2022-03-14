@@ -157,7 +157,7 @@ Plot distribution of the filtered counts
 
 ```{r}
 {
-  pdf(paste0("../", figures.dir,"filtered_counts.pdf"), width = 10,  height = 8, compress = TRUE )
+  pdf(paste0("../", figures.dir,"filtered_counts_distribution.pdf"), width = 10,  height = 8, compress = TRUE )
   rafalib::mypar(1,2,mar=c(10,3,3,2))
   boxplot(log2(as.matrix(counts_filtered)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Filtered data")
   hist(log2(as.matrix(counts_filtered)+1),ylab="",las=2,main="Filtered data")
@@ -166,7 +166,7 @@ Plot distribution of the filtered counts
 }
 ```
 
-## DESeq object creation, Normalisation and data Quality Control
+## DESeq object creation, Normalization and data Quality Control
 
 Generating the DESeq dataset.
 
@@ -174,18 +174,25 @@ Generating the DESeq dataset.
 # create DESeq object
 dds <- DESeqDataSetFromMatrix(countData = counts_filtered,
                               colData = as.data.frame(sampleTable),
-                              design = ~ group + dose)
-dds <- DESeqDataSetFromMatrix(counts_raw,
-                              design = ~ dose + group,
-                              colData = sampleTable)
+                              design = ~ group + sex + age + dose)
+# Normalize with DESeq
+d <- DESeq2::estimateSizeFactors(dds,type="ratio")
+counts_DESeq2_normalized <- log2( counts(d,normalized=TRUE) + 1 ) 
+saveRDS(counts_DESeq2_normalized,"../data/test_data/gene_counts_normalized_deseq2.Rds")
 
-#Normalise w/ variance stabilizing transformation
+# Normalize with variance stabilizing transformation for later PCA and heatmap
 counts_vst_normalized <- vst(dds, blind = TRUE)
+```
 
-#Distribution
+Plot distribution of data after normalization
+
+```{r}
+# haven't decided which plots to use
 vst_matrix <- assay(counts_vst_normalized) 
 hist(vst_matrix)
+hist(counts_DESeq2_normalized)
 boxplot(vst_matrix ,ylab=expression('Log'[2]~'Read counts'),las=2,main="VST")
+boxplot(counts_DESeq2_normalized ,ylab=expression('Log'[2]~'Read counts'),las=2,main="DESeq2")
 ```
 
 ## Heatmap
