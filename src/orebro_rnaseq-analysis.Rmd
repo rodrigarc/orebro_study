@@ -11,7 +11,7 @@ knit: (function(inputFile, encoding) {
                               xfun::sans_ext(inputFile), '_', Sys.Date(), '.html'),
                                 output_dir = "../results/lab_book/")})
 editor_options: 
-  chunk_output_type: console
+  chunk_output_type: inline
 ---
 
 ```{r global.options, include=FALSE}
@@ -73,13 +73,14 @@ library(tibble)
 
 ## Download and load data
 
-
 ```{r}
 #reading data
 counts_raw <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>%  as.data.frame()
 
-sampleTable <- read.table("../data/proces-data_core-facility/sample_metadata.csv", sep = ",", header = TRUE) %>%
-  mutate(dose = plyr::mapvalues(visit, from = c(1,2,4,5), to = c("0_dose1","24_dose1","0_dose2","24_dose2")))
+sampleTable <- read.table("../data/metadata/sample_metadata.csv", sep = ",", header = TRUE) %>%
+  dplyr::select(-c(X, X.1, X.2, X.3, X.4, X.5, X.6, X.7)) %>%
+  mutate(dose = as.factor(plyr::mapvalues(visit, from = c(1,2,4,5), to = c("0_dose1","24_dose1","0_dose2","24_dose2"))),
+         group = as.factor(group))
 
 ## renaming genes based on emsembl annotation
 edb <- EnsDb.Hsapiens.v86
@@ -93,12 +94,11 @@ counts_raw <- counts_raw %>%
 counts_raw <- aggregate(counts_raw[,-1], list(Geneid=counts_raw[,1]), FUN = sum)
 rownames(counts_raw) <- counts_raw$Geneid
 counts_raw <- dplyr::select(counts_raw, -c(Geneid))
-
 ```
 
 ## Inspect raw data
 
-Matching metadata to countTable and plotting the raw counts histogram for first visual inspection.  
+Matching metadata to countTable and plotting the raw counts for first visual inspection.
 
 ```{r}
 #Synchronize count data with sample table
@@ -136,6 +136,13 @@ hist(meanLog2CPM)
 
 counts_filtered <- counts_raw[meanLog2CPM > 1, ] 
 
+
+#Plot for detection rate across genes for raw and filtered counts
+hist(rowSums(counts_raw>3))
+hist(rowSums(counts_filtered>3))
+```
+
+```{r}
 #Plot distribution of the filtered counts
 {
   pdf(paste0("../", figures.dir,"filtered_counts.pdf"), width = 10,  height = 8, compress = TRUE )
@@ -145,9 +152,6 @@ counts_filtered <- counts_raw[meanLog2CPM > 1, ]
   par(mfrow=c(1,1))
   dev.off()
 }
-#Plot for detection rate across genes for raw and filtered counts
-hist(rowSums(counts_raw>3))
-hist(rowSums(counts_filtered>3))
 ```
 
 ## DESeq object creation, Normalisation and data Quality Control
@@ -199,7 +203,6 @@ colors<-colorRampPalette(rev(brewer.pal(n=7,name="RdBu")))(255)
 
 ```
 
-
 ## Principal Component Analyais (PCA)
 
 Dimensionality reduction for evaluating outliers and global sample clusters for both quality control but also for primary exploratory analysis.
@@ -236,7 +239,6 @@ var$contrib %>%
   
 ```
 
-
 ## Statistical analysis and fitting a model
 
 ```{r}
@@ -266,16 +268,15 @@ kableExtra::kable(sigRes) %>%
 
 ```
 
-
 ## Visualization plot of DEG
 
-Volcano plot for data exploranotory analysis, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
+Volcano plot for data exploranotory analysis, filtering for significant values with False Discovery Rate \< 0.05 and log fold change greater than 1.
 
 ```{r}
 
 #Visualize results
 volcanoPlot <- ggplot(res$table, aes(x = logFC, y = -log10(FDR),
-                                     color = ifelse(FDR < 0.05 & abs(logFC) > 1, "darkred", "grey"))) +
+                                     color = ifelse(FDR < 0.05 & abs(logFC) > 1, "darkred", "grey"x))) +
   geom_point() +
   xlab(expression("Fold Change (Log"[2]*")")) +
   ylab(expression("Adjusted P value (Log"[10]*")")) +
@@ -335,7 +336,6 @@ for(res in names(enrichmentRes)){
 }
 ```
 
-
 # Variables interactions
 
 ## COVID-19 exposition, dose, sex, age, and sex.
@@ -377,6 +377,7 @@ print(volcanoPlot)
 ```
 
 ### Enrichment plot
+
 ```{r echo=FALSE}
 #Visualize significant terms
 enrichPlots <- list()
@@ -453,7 +454,7 @@ randomForest::randomForest(x =x ,y=y, ntree = 3000)
 
 ## Model fitting (C50 Decision tree)
 
-Decision tree analysis using the ```C50``` package with Leave-one-out cross-validation (LOOCV).
+Decision tree analysis using the `C50` package with Leave-one-out cross-validation (LOOCV).
 
 ```{r}
 
@@ -551,7 +552,7 @@ cm <- confusionMatrix(dtModel$pred$predictions$pred, sampleTable$ICUstat)
 
 ## Model fitting (Random Forest)
 
-Decision tree analysis using the ```randomForest``` package with Leave-one-out cross-validation (LOOCV).
+Decision tree analysis using the `randomForest` package with Leave-one-out cross-validation (LOOCV).
 
 ```{r}
 #Create training set
@@ -589,7 +590,6 @@ randomForest::importance(dtModel$fit) %>%
 
 ```
 
-
 ## Plotting number of trees from random forest and estimated errors
 
 ```{r}
@@ -612,10 +612,9 @@ cm <- confusionMatrix(dtModel$pred$predictions$pred, sampleTable$ICUstat)
 }
 ```
 
-
 ## Variable selection based on Machine Learning predictions
 
-Based on the output of the decision tree and random forest, we have generated a generalized linear model based on the gene *BCL9L*. 
+Based on the output of the decision tree and random forest, we have generated a generalized linear model based on the gene *BCL9L*.
 
 ```{r}
 
@@ -650,11 +649,6 @@ summary(fit)
 
 }
 ```
-
-
-
-
-
 
 ## Session info
 
