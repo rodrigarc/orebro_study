@@ -209,7 +209,8 @@ rownames(Metadata) <- sampleTable$sample_ID
 colors<-colorRampPalette(rev(brewer.pal(n=7,name="RdBu")))(255)
 
 {
-  pheatmap(sampleDist, 
+  pdf(paste0("../", figures.dir,"heatmap.pdf"), width = 10,  height = 8, compress = TRUE )
+ Heatmap <-  pheatmap(sampleDist, 
            color = colors,
            clustering_distance_rows = as.dist(1 - sampleDist),
            clustering_distance_cols = as.dist(1 - sampleDist), 
@@ -217,9 +218,11 @@ colors<-colorRampPalette(rev(brewer.pal(n=7,name="RdBu")))(255)
            show_colnames = F,
            clustering_method = "ward.D2",
            annotation_col = Metadata)
+  par(mfrow=c(1,1))
+  dev.off()
 }
 
-
+print(Heatmap)
 ```
 
 ## Principal Component Analyais (PCA)
@@ -227,9 +230,8 @@ colors<-colorRampPalette(rev(brewer.pal(n=7,name="RdBu")))(255)
 Dimensionality reduction for evaluating outliers and global sample clusters for both quality control but also for primary exploratory analysis.
 
 ```{r}
-
 #Sample PCA
-pcaRes <- prcomp(t(assay(normCounts)))
+pcaRes <- prcomp(t(assay(counts_vst_normalized)))
 varExp <- round(summary(pcaRes)[[1]],digits = 2)
 
 pcaDF <- data.frame(
@@ -239,16 +241,30 @@ pcaDF <- data.frame(
   Sample = sampleTable$sample_ID,
   Dose = sampleTable$dose)
 
-pcaPlot <- ggplot( pcaDF, mapping = aes(x = PC1, y = PC2, color = Group, label = Sample)) + 
+{ 
+  pdf(paste0("../", figures.dir,"PCA.pdf"), width = 10,  height = 8, compress = TRUE )
+  pcaPlot <- ggplot( pcaDF, mapping = aes(x = PC1, y = PC2, color = Group, label = Sample)) + 
   geom_point(aes(shape = Dose), size = 3) +
   labs(x = paste0("PC1 (", varExp[1], " %)"), y = paste0("PC2 (", varExp[2], " %)")) + 
   theme(axis.text = element_text(size = 12), legend.text = element_text(size = 10)) +
   scale_color_manual(values = brewer.pal(3, "Accent")) +
   cowplot::theme_cowplot()
+  par(mfrow=c(1,1))
+  dev.off()
+}
 
 print(pcaPlot)
 
-## exploring which variables contribue the most for each PC
+## make a scree plot to compute PC variance
+pca.var <- pcaRes$sdev^2
+pca.var.per <- round(pca.var/sum(pca.var)*100, 1)
+{
+  pdf(paste0("../", figures.dir,"Scree_plot.pdf"), width = 10,  height = 8, compress = TRUE )  
+  barplot(pca.var.per, main="Scree Plot", xlab="Principal Component", ylab="Percent Variation")
+  par(mfrow=c(1,1))
+  dev.off()
+}
+## exploring which variables contribute the most for each PC
 var <- get_pca_var(pcaRes)
 var$contrib %>%
   as.data.frame() %>%
