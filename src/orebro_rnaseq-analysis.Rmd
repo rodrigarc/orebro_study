@@ -1,6 +1,6 @@
 ---
 title: "Orebro RNA-seq analysis"
-author: "Rodrigo Arcoverde Cerveira"
+author: "Rodrigo Arcoverde Cerveira & Gustav Joas"
 date: '`r format(Sys.Date(), "%Y-%m-%d")`'
 output: html_document
 abstract: Örebro study RNA-seq data analysis.
