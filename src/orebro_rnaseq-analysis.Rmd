@@ -43,7 +43,7 @@ options(stringsAsFactors = FALSE)
 
 ## Loading libraries
 
-```{r}
+```{r, message=FALSE}
 #if you do not have libraries, they are located in either CRAN or Bioconductor
 library(kableExtra)
 library(forcats)
@@ -81,6 +81,9 @@ sampleTable <- read.table("../data/metadata/sample_metadata.csv", sep = ",", hea
   dplyr::select(-c(X, X.1, X.2, X.3, X.4, X.5, X.6, X.7)) %>%
   mutate(dose = as.factor(plyr::mapvalues(visit, from = c(1,2,4,5), to = c("0_dose1","24_dose1","0_dose2","24_dose2"))),
          group = as.factor(group))
+
+#remove incomplete sample
+sampleTable<-subset(sampleTable, sample_ID!="P22761_1037_S37")
 
 ## renaming genes based on emsembl annotation
 edb <- EnsDb.Hsapiens.v86
@@ -134,9 +137,16 @@ Plot detection of genes across samples. All samples are more or less close to av
 Removing reads with the log2 of the counts per million (cpm) lower than 1.
 
 ```{r}
+
 #Filter low counts
+keep_genes <- rowSums( counts_raw > 5 ) >= 8
+counts_filtered<- counts_raw[keep_genes,]
+sum(keep_genes)
+
+
 meanLog2CPM <- rowMeans(log2(cpm(counts_raw) + 1)) 
 counts_filtered <- counts_raw[meanLog2CPM > 1, ] 
+
 
 ```
 
@@ -171,17 +181,33 @@ Plot distribution of the filtered counts
 Generating the DESeq dataset.
 
 ```{r}
-# create DESeq object
-dds <- DESeqDataSetFromMatrix(countData = counts_filtered,
+# prepare for DESeq
+sampleTable$conditions <- (str_c(sampleTable$group, "_", sampleTable$dose ))
+sampleTable$conditions = factor(sampleTable$conditions)
+sampleTable$sex = factor(sampleTable$sex)
+sampleTable$dose = factor(sampleTable$dose)
+sampleTable$group = factor(sampleTable$group)
+
+sampleTable$time = sampleTable$conditions  
+sampleTable$time <- gsub('.{6}$', '', sampleTable$time)
+sampleTable$time = factor(sampleTable$time)
+# create 3 DESeq object
+dds1 <- DESeqDataSetFromMatrix(countData = counts_filtered,
                               colData = as.data.frame(sampleTable),
-                              design = ~ group + sex + age + dose)
-# Normalize with DESeq
-d <- DESeq2::estimateSizeFactors(dds,type="ratio")
-counts_DESeq2_normalized <- log2( counts(d,normalized=TRUE) + 1 ) 
-saveRDS(counts_DESeq2_normalized,"../data/test_data/gene_counts_normalized_deseq2.Rds")
+                              design = ~  sex + age + conditions)
+
+dds2 <- DESeqDataSetFromMatrix(countData = counts_filtered,
+                              colData = as.data.frame(sampleTable),
+                              design = ~  sex + age + time)
+
+dds3 <- DESeqDataSetFromMatrix(countData = counts_filtered,
+                              colData = as.data.frame(sampleTable),
+                              design = ~  sex + age + dose)
+# Normalize with rlog
+counts_rlog_normalized <- rlog(dds1, blind = TRUE)
 
 # Normalize with variance stabilizing transformation for later PCA and heatmap
-counts_vst_normalized <- vst(dds, blind = TRUE)
+counts_vst_normalized <- vst(dds1, blind = TRUE)
 ```
 
 Plot distribution of data after normalization
@@ -189,10 +215,12 @@ Plot distribution of data after normalization
 ```{r}
 # haven't decided which plots to use
 vst_matrix <- assay(counts_vst_normalized) 
+rlog_matrix <- assay(counts_rlog_normalized)
 hist(vst_matrix)
-hist(counts_DESeq2_normalized)
+hist(rlog_matrix)
 boxplot(vst_matrix ,ylab=expression('Log'[2]~'Read counts'),las=2,main="VST")
-boxplot(counts_DESeq2_normalized ,ylab=expression('Log'[2]~'Read counts'),las=2,main="DESeq2")
+boxplot(rlog_matrix ,ylab=expression('Log'[2]~'Read counts'),las=2,main="rlog")
+
 ```
 
 ## Heatmap
@@ -238,7 +266,7 @@ pcaDF <- data.frame(
   PC1 = pcaRes$x[, 1],
   PC2 = pcaRes$x[, 2],
   Group = sampleTable$group,
-  Sample = sampleTable$sample_ID,
+    Sample = sampleTable$sample_ID,
   Dose = sampleTable$dose)
 
 { 
@@ -274,58 +302,69 @@ var$contrib %>%
   
 ```
 
-## Statistical analysis and fitting a model
+## Differential Gene Expression Analysis
 
 ```{r}
-#Step 1: Define design matrix
-designMatrix <- model.matrix(~ 0 + dose, data = sampleTable) 
-#designMatrix[1:5, 1:5]
-designMatrix
-#Step 2: Define contrast matrix
-contrastMatrix <- makeContrasts(ICUstatICU - ICUstatNonICU , levels=make.names(colnames(designMatrix)))
+# Run the DESeq2 analysis
+dds1 <-  DESeq(dds1)
+dds2 <-  DESeq(dds2)
+dds3 <-  DESeq(dds3)
 
+# contrast
+resultsNames(dds1)
+resultsNames(dds2)
+resultsNames(dds3)
 
-#Step 3: Fit model
-dge <- DGEList(countTable)
-dge <- calcNormFactors(dge)
-dge <- estimateDisp(dge, designMatrix, robust = TRUE) 
-fit <- glmQLFit(dge, designMatrix, robust = TRUE)
+# Results dds1
+res_neg_dose1 <- as.data.frame(results(dds1, contrast = c("conditions", "Neg_24_dose1", "Neg_0_dose1")))
+res_pos_dose1 <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_24_dose1", "Pos_0_dose1")))
+res_neg_dose2 <- as.data.frame(results(dds1, contrast = c("conditions", "Neg_24_dose2", "Neg_0_dose2")))
+res_pos_dose2 <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_24_dose2", "Pos_0_dose2")))
 
-#Step 4: Perform hypothesis testing
-res <- glmQLFTest(fit, contrast = contrastMatrix)
-res <- topTags(res, n = nrow(countTable))
-sigRes <- subset(res$table, FDR < 0.05 & abs(logFC) > 1) 
+# Results dds2
+res_pos <- as.data.frame(results(dds2, contrast = c("time", "Pos_24", "Pos_0")))
+res_neg <- as.data.frame(results(dds2, contrast = c("time", "Neg_24", "Neg_0")))
 
-kableExtra::kable(sigRes) %>%
-  kableExtra::scroll_box(width = "100%", height = "100px")
-
-
-
+# Results dds3
+res_dose1 <- as.data.frame(results(dds3, contrast = c("dose", "24_dose1", "0_dose1")))
+res_dose2 <- as.data.frame(results(dds3, contrast = c("dose", "24_dose2", "0_dose2")))
 ```
 
-## Visualization plot of DEG
 
-Volcano plot for data exploranotory analysis, filtering for significant values with False Discovery Rate \< 0.05 and log fold change greater than 1.
+## Volcano plots
+Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate \< 0.05 and log fold change greater than 1.
 
 ```{r}
+results_list <- list(res_neg_dose1, res_pos_dose1, res_neg_dose2, res_pos_dose2, res_pos, res_neg, res_dose1, res_dose2)
 
-#Visualize results
-volcanoPlot <- ggplot(res$table, aes(x = logFC, y = -log10(FDR),
-                                     color = ifelse(FDR < 0.05 & abs(logFC) > 1, "darkred", "grey"x))) +
-  geom_point() +
+names(results_list) <- c("neg_dose1", "pos_dose1", "neg_dose2", "pos_dose2","pos","neg", "dose1", "dose2") 
+  results_list_plot <- lapply(results_list, function(x) {
+  x <- x %>% mutate(test = ifelse(padj < 0.05 & abs(log2FoldChange) > 1, "TRUE", "FALSE"))
+  })
+
+lapply(results_list_plot, function(x) 
+  ggplot(x, aes(x=log2FoldChange,y=-log10(padj))) +
+  geom_point(aes(colour=test), size=1, alpha=0.3) +
+  scale_color_manual(values = c("grey80", 'red')) +
   xlab(expression("Fold Change (Log"[2]*")")) +
   ylab(expression("Adjusted P value (Log"[10]*")")) +
   geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
-  geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) + 
+  geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
+  xlim(-7,7) +
+  ylim(0,3) +
   theme_minimal() +
-  theme(legend.position = "none") +
-  scale_colour_manual(values = c("darkred", "grey", "steelblue")) + 
-  geom_text_repel(aes(x = logFC, y = -log10(FDR), 
-                      label = rownames(res$table)[1:10],
-                      size = 2, color = "steelblue"),
-                  data = res$table[1:10, ])
-print(volcanoPlot)
+  theme(legend.position = 'none'))
 
+```
+
+
+```{r}
+
+#MA plot
+DESeq2::plotMA(res)
+ #Counts plot
+plotCounts(d,gene=rownames(res)[1],intgroup="group",normalized=F)
+plotCounts(d,gene=rownames(res)[1],intgroup="group",normalized=T)
 ```
 
 ## Enrichment analysis
@@ -334,10 +373,13 @@ Selecting two different databases for search for enrichment analysis. The databa
 
 ```{r}
 #Enrichment analysis
+listEnrichrDbs()
 
-enrichmentRes <- enrichr(
-  genes = rownames(sigRes),
-  databases = c("GO_Biological_Process_2021", "KEGG_2021_Human"))
+enrichment_list <- lapply(results_list_plot, function(x) {
+  enrichr(
+  genes = rownames(x[x$test == TRUE, ]),
+  databases = c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021"))})
+
 ```
 
 ## Visualize enriched pathways
@@ -345,14 +387,25 @@ enrichmentRes <- enrichr(
 ```{r}
 
 #Visualize significant terms
-enrichPlots <- list()
+enrichment_list <- enrichment_list[-c(1)]
 
-for(res in names(enrichmentRes)){
-  plotDF <- enrichmentRes[[res]][1:10, ]
-  plotDF$Term = str_trunc(plotDF$Term, 45)
-  plotDF$Term <- factor(plotDF$Term, levels = rev(plotDF$Term))
+plots_enrich <- list()
+for(pathway in 1:length(enrichment_list[[1]])){
   
-  enrichPlot <- ggplot(plotDF, aes(x = Term, y = -log10(Adjusted.P.value))) +
+  rbinded_enrich_list <- lapply(enrichment_list, function(x)x[[pathway]])
+  print(names(enrichment_list[[1]])[[pathway]])
+  rbinded_enrich_df <- data.table::rbindlist(l = rbinded_enrich_list, idcol = TRUE, fill = TRUE)
+  
+  plots_enrich[[pathway]] <- rbinded_enrich_df %>%
+  group_by(.id) %>%
+  arrange(Adjusted.P.value) %>%
+  slice(1:10) 
+  
+}
+
+lapply(plots_enrich, function(x){
+  x %>%
+  ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
     geom_bar(stat = "identity", width = 0.05) + geom_point(size = 3) +
     theme_minimal() +
     theme(text = element_text(size = 10),
@@ -362,13 +415,11 @@ for(res in names(enrichmentRes)){
     coord_flip() +
     geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") + 
     theme_bw() +
-    labs(title = res, y = expression("Adjusted P value, Log"[10]*""))
-  enrichPlots[[res]] <- enrichPlot 
-  }
+    labs(y = expression("Adjusted P value, Log"[10]*"")) +
+  facet_wrap(~.id)
+})
 
-{
-  plot(arrangeGrob(grobs = enrichPlots))
-}
+
 ```
 
 # Variables interactions
