@@ -72,6 +72,7 @@ library(devtools)
 library(clusterProfiler)
 library(enrichplot)
 library(pathview)
+
 ```
 
 
@@ -339,13 +340,15 @@ res_dose2 <- as.data.frame(results(dds3, contrast = c("dose", "24_dose2", "0_dos
 Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate \< 0.05 and log fold change greater than 1.
 
 ```{r}
+# check only the negative fold change to see if there's a different pahtway of negative fold changes
+
 results_list <- list(res_neg_dose1, res_pos_dose1, res_neg_dose2, res_pos_dose2, res_pos, res_neg, res_dose1, res_dose2)
 
 names(results_list) <- c("neg_dose1", "pos_dose1", "neg_dose2", "pos_dose2","pos","neg", "dose1", "dose2") 
   results_list_plot <- lapply(results_list, function(x) {
   x <- x %>% mutate(test = ifelse(padj < 0.05 & abs(log2FoldChange) > 1, "TRUE", "FALSE"))
   })
-
+# color by group dose1 and dose2, or neg and pos. 2 plots colored based on condition
 lapply(results_list_plot, function(x) 
   ggplot(x, aes(x=log2FoldChange,y=-log10(padj))) +
   geom_point(aes(colour=test), size=1, alpha=0.3) +
@@ -358,6 +361,7 @@ lapply(results_list_plot, function(x)
   ylim(0,3) +
   theme_minimal() +
   theme(legend.position = 'none'))
+
 
 ```
 
@@ -440,7 +444,7 @@ lapply(plots_enrich, function(x){
 
 ```{r, message=F, warning=F}
 # SET THE DESIRED ORGANISM HERE
-organism = "org.Hs.eg.db"
+organism <- "org.Hs.eg.db"
 # BiocManager::install(organism, character.only = TRUE)
 library(organism, character.only = TRUE)
 ```
@@ -450,9 +454,9 @@ library(organism, character.only = TRUE)
 ```{r}
 # reading in data from deseq2
 # we want the log2 fold change 
-original_gene_list <- res_pos$log2FoldChange
+original_gene_list <- res_neg_dose2$log2FoldChange
 # name the vector
-names(original_gene_list) <- rownames(res_pos)
+names(original_gene_list) <- rownames(res_neg_dose2)
 # omit any NA values 
 gene_list<-na.omit(original_gene_list)
 # sort the list in decreasing order (required for clusterProfiler)
@@ -465,12 +469,12 @@ gene_list = sort(gene_list, decreasing = TRUE)
 gse <- gseGO(geneList=gene_list, 
              ont ="ALL", 
              keyType = "SYMBOL", 
-             nPerm = 10000, 
+            # nPerm = 10000, 
              minGSSize = 3, 
              maxGSSize = 800, 
              pvalueCutoff = 0.05, 
              verbose = TRUE, 
-             OrgDb = organism, 
+             OrgDb = get(organism), 
              pAdjustMethod = "fdr")
 ```
 
@@ -483,6 +487,9 @@ dotplot(gse, showCategory=10, split=".sign") + facet_grid(.~.sign)
 ## Ridgeplot
 Helpful to interpret up/down-regulated pathways.
 ```{r fig.width=18, fig.height=12}
+# change coloring for up and downregulated
+
+# try also to plot as a heatmap for all the group comparisons
 ridgeplot(gse) + labs(x = "enrichment distribution")
 ```
 
@@ -491,8 +498,9 @@ Traditional method for visualizing GSEA result.
   
 ```{r fig.height=6, fig.width=8}
 # Use the `Gene Set` param for the index in the title, and as the value for geneSetId
-gseaplot(gse, by = "all", title = gse$Description[1], geneSetID = 1)
+gseaplot(gse, by = "all", title = gse$Description[55], geneSetID = 55)
 head(gse, 100)
+
 ```
 
 
@@ -543,12 +551,13 @@ gseKEGG(gmt_e) + labs(x = "enrichment distribution")
 This will create a PNG and *different* PDF of the enriched KEGG pathway.  
 ```{r, message=F, warning=F, echo = TRUE}
 # Produce the native KEGG plot (PNG)
-dme <- pathview(gene.data=kegg_gene_list, pathway.id="hsa04620", species = kegg_organism)
+dme <- pathview(gene.data=kegg_gene_list, pathway.id="hsa03015", species = kegg_organism)
 # Produce a different plot (PDF) (not displayed here)
-dme <- pathview(gene.data=kegg_gene_list, pathway.id="hsa04620", species = kegg_organism, kegg.native = F)
+dme <- pathview(gene.data=kegg_gene_list, pathway.id="hsa03015", species = kegg_organism, kegg.native = F)
 ```
+
 ```{r pressure, echo=TRUE, fig.cap="KEGG Native Enriched Pathway Plot", out.width = '100%'}
-knitr::include_graphics("hsa04620.pathview.png")
+knitr::include_graphics("hsa03015.pathview.png")
 ```
 # Variables interactions
 
