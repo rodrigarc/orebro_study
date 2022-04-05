@@ -188,14 +188,14 @@ Generating the DESeq dataset.
 ```{r}
 # prepare for DESeq
 sampleTable$conditions <- (str_c(sampleTable$group, "_", sampleTable$dose ))
-sampleTable$conditions = factor(sampleTable$conditions)
-sampleTable$sex = factor(sampleTable$sex)
-sampleTable$dose = factor(sampleTable$dose)
-sampleTable$group = factor(sampleTable$group)
+sampleTable$conditions <- factor(sampleTable$conditions)
+sampleTable$sex <- factor(sampleTable$sex)
+sampleTable$dose <- factor(sampleTable$dose)
+sampleTable$group <- factor(sampleTable$group)
 
-sampleTable$time = sampleTable$conditions  
+sampleTable$time <- sampleTable$conditions  
 sampleTable$time <- gsub('.{6}$', '', sampleTable$time)
-sampleTable$time = factor(sampleTable$time)
+sampleTable$time <- factor(sampleTable$time)
 # create 3 DESeq object
 dds1 <- DESeqDataSetFromMatrix(countData = counts_filtered,
                               colData = as.data.frame(sampleTable),
