@@ -345,22 +345,36 @@ Volcano plot for data exploratory analysis, filtering for significant values wit
 results_list <- list(res_neg_dose1, res_pos_dose1, res_neg_dose2, res_pos_dose2, res_pos, res_neg, res_dose1, res_dose2)
 
 names(results_list) <- c("neg_dose1", "pos_dose1", "neg_dose2", "pos_dose2","pos","neg", "dose1", "dose2") 
-  results_list_plot <- lapply(results_list, function(x) {
-  x <- x %>% mutate(test = ifelse(padj < 0.05 & abs(log2FoldChange) > 1, "TRUE", "FALSE"))
+    results_list_plot <- lapply(results_list, function(x) {
+  x <- x %>% mutate(test = case_when(padj < 0.05 & log2FoldChange > 1 ~ "Up regulated",
+                                     padj < 0.05 & log2FoldChange < -1 ~ "Down regulated",
+                                     TRUE ~ "Not significant"),
+                    )
   })
 # color by group dose1 and dose2, or neg and pos. 2 plots colored based on condition
-lapply(results_list_plot, function(x) 
-  ggplot(x, aes(x=log2FoldChange,y=-log10(padj))) +
+# color by group dose1 and dose2, or neg and pos. 2 plots colored based on condition
+# function to plot and save volcano plot
+.volcano_plot <-  function(x){
+  x %>% 
+  ggplot(aes(x=log2FoldChange,y=-log10(padj))) +
   geom_point(aes(colour=test), size=1, alpha=0.3) +
-  scale_color_manual(values = c("grey80", 'red')) +
+  scale_color_manual(values = c("blue", "grey80", "red")) +
   xlab(expression("Fold Change (Log"[2]*")")) +
   ylab(expression("Adjusted P value (Log"[10]*")")) +
   geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
   geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
-  xlim(-7,7) +
-  ylim(0,3) +
-  theme_minimal() +
-  theme(legend.position = 'none'))
+  geom_label_repel(data = subset(x %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) > 10|padj < 0.05), aes(log2FoldChange,-log10(padj),label= gene_symbol), max.overlaps = 10) +
+  xlim(-20,20) +
+  ylim(0,10) +
+  cowplot::theme_cowplot() +
+  theme(legend.position = 'none')
+  }
+
+
+volcano_plots <- lapply(results_list_plot, .volcano_plot)
+lapply(names(volcano_plots), function(x) ggsave(filename = paste0("../", figures.dir, x,"_volcano_plot.pdf"), 
+                                         plot = volcano_plots[[x]]))
+lapply(results_list_plot, .volcano_plot)
 
 
 ```
@@ -383,11 +397,15 @@ Selecting two different databases for search for enrichment analysis. The databa
 #Enrichment analysis
 listEnrichrDbs()
 
-enrichment_list <- lapply(results_list_plot, function(x) {
+enrichment_list_up <- lapply(results_list_plot, function(x) {
   enrichr(
-  genes = rownames(x[x$test == TRUE, ]),
+  genes = rownames(x[x$test == "Up regulated", ]),
   databases = c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021"))})
 
+enrichment_list_down <- lapply(results_list_plot, function(x) {
+  enrichr(
+  genes = rownames(x[x$test == "Down regulated", ]),
+  databases = c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021"))})
 #Testing Blood Transcriptome modules
 source(system.file('extdata', 'Run.GSEA.R', package = 'GSEA'))
 
