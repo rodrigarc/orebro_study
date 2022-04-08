@@ -102,6 +102,9 @@ counts_raw <- counts_raw %>%
 counts_raw <- aggregate(counts_raw[,-1], list(Geneid=counts_raw[,1]), FUN = sum)
 rownames(counts_raw) <- counts_raw$Geneid
 counts_raw <- dplyr::select(counts_raw, -c(Geneid))
+
+# load normalized transcripts per million
+
 ```
 
 ## Inspect raw data
@@ -346,8 +349,8 @@ results_list <- list(res_neg_dose1, res_pos_dose1, res_neg_dose2, res_pos_dose2,
 
 names(results_list) <- c("neg_dose1", "pos_dose1", "neg_dose2", "pos_dose2","pos","neg", "dose1", "dose2") 
     results_list_plot <- lapply(results_list, function(x) {
-  x <- x %>% mutate(test = case_when(padj < 0.05 & log2FoldChange > 1 ~ "Up regulated",
-                                     padj < 0.05 & log2FoldChange < -1 ~ "Down regulated",
+  x <- x %>% mutate(test = case_when(padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
+                                     padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
                                      TRUE ~ "Not significant"),
                     )
   })
@@ -355,27 +358,29 @@ names(results_list) <- c("neg_dose1", "pos_dose1", "neg_dose2", "pos_dose2","pos
 # color by group dose1 and dose2, or neg and pos. 2 plots colored based on condition
 # function to plot and save volcano plot
 .volcano_plot <-  function(x){
-  x %>% 
+  subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 3 & padj < 0.05)
+  
+  results_list_plot[[x]] %>% 
   ggplot(aes(x=log2FoldChange,y=-log10(padj))) +
   geom_point(aes(colour=test), size=1, alpha=0.3) +
-  scale_color_manual(values = c("blue", "grey80", "red")) +
+  scale_color_manual(values = c("Down regulated"="blue", "Not significant" ="grey80", "Up regulated"="red")) +
   xlab(expression("Fold Change (Log"[2]*")")) +
   ylab(expression("Adjusted P value (Log"[10]*")")) +
   geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
   geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
-  geom_label_repel(data = subset(x %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) > 10|padj < 0.05), aes(log2FoldChange,-log10(padj),label= gene_symbol), max.overlaps = 10) +
+  geom_label_repel(data = subsetted, aes(log2FoldChange,-log10(padj),label= gene_symbol), max.overlaps = 10) +
   xlim(-20,20) +
   ylim(0,10) +
+  ggtitle(x) +  
   cowplot::theme_cowplot() +
   theme(legend.position = 'none')
   }
 
-
-volcano_plots <- lapply(results_list_plot, .volcano_plot)
+volcano_plots <- lapply(names(results_list_plot), .volcano_plot)
+#names(volcano_plots) <- names(results_list_plot)
+volcano_plots
 lapply(names(volcano_plots), function(x) ggsave(filename = paste0("../", figures.dir, x,"_volcano_plot.pdf"), 
                                          plot = volcano_plots[[x]]))
-lapply(results_list_plot, .volcano_plot)
-
 
 ```
 
@@ -406,13 +411,8 @@ enrichment_list_down <- lapply(results_list_plot, function(x) {
   enrichr(
   genes = rownames(x[x$test == "Down regulated", ]),
   databases = c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021"))})
-#Testing Blood Transcriptome modules
-source(system.file('extdata', 'Run.GSEA.R', package = 'GSEA'))
 
-data(geneList, package="DOSE")
-gene <- names(geneList)[abs(geneList) > 2]
 gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
-gmt_explosion <- enricher(rownames(res_pos[res_pos$padj < 0.05, ]), TERM2GENE = gmt)
 
 ```
 
@@ -470,45 +470,50 @@ library(organism, character.only = TRUE)
 ## Prepare Input
 
 ```{r}
-# reading in data from deseq2
-# we want the log2 fold change 
-original_gene_list <- res_neg_dose2$log2FoldChange
-# name the vector
-names(original_gene_list) <- rownames(res_neg_dose2)
-# omit any NA values 
-gene_list<-na.omit(original_gene_list)
-# sort the list in decreasing order (required for clusterProfiler)
-gene_list = sort(gene_list, decreasing = TRUE)
+process_to_gsea <- function(x){
+  original_gene_list <- x$log2FoldChange
+  names(original_gene_list) <- rownames(x)
+  gene_list<-na.omit(original_gene_list)
+  gene_list <- sort(gene_list, decreasing = TRUE)
+}
+
+ls_processed <- lapply(results_list, process_to_gsea)
+
 ```
 
 ## Gene Set Enrichment
 
 ```{r}
-gse <- gseGO(geneList=gene_list, 
-             ont ="ALL", 
-             keyType = "SYMBOL", 
-            # nPerm = 10000, 
+list_gse <- lapply(ls_processed, function(x) GSEA(geneList=x, 
+            TERM2GENE = gmt,
              minGSSize = 3, 
              maxGSSize = 800, 
+            nPermSimple = 10000,
              pvalueCutoff = 0.05, 
              verbose = TRUE, 
-             OrgDb = get(organism), 
-             pAdjustMethod = "fdr")
+             pAdjustMethod = "fdr"))
+
+
+```
+
+
+## Ridgeplot
+Helpful to interpret up/down-regulated pathways.
+```{r fig.width=18, fig.height=12}
+# change coloring for up and downregulated
+# try also to plot as a heatmap for all the group comparisons
+
+rigdgeplots_list <- lapply(list_gse, ridgeplot)
+lapply(names(rigdgeplots_list), function(x) ggsave(filename = paste0("../", figures.dir, x,"_BTM_plot.pdf"), 
+                                         plot = rigdgeplots_list[[x]], width = 15, height = 10))
+rigdgeplots_list
+
 ```
 
 ## Dotplot
 ```{r echo=TRUE, fig.width=15, fig.height=8}
 require(DOSE)
 dotplot(gse, showCategory=10, split=".sign") + facet_grid(.~.sign)
-```
-
-## Ridgeplot
-Helpful to interpret up/down-regulated pathways.
-```{r fig.width=18, fig.height=12}
-# change coloring for up and downregulated
-
-# try also to plot as a heatmap for all the group comparisons
-ridgeplot(gse) + labs(x = "enrichment distribution")
 ```
 
 ## GSEA Plot  
@@ -527,7 +532,7 @@ head(gse, 100)
 ```{r}
 # Convert gene IDs for gseKEGG function
 # We will lose some genes here because not all IDs will be converted
-ids<-bitr(names(original_gene_list), fromType = "SYMBOL", toType = "ENTREZID", OrgDb=organism)
+ids<-bitr(names(ls_processed[[5]]), fromType = "SYMBOL", toType = "ENTREZID", OrgDb=organism)
 # remove duplicate IDS (here I use "ENSEMBL", but it should be whatever was selected as keyType)
 dedup_ids = ids[!duplicated(ids[c("SYMBOL")]),]
 # Create a new dataframe df2 which has only the genes which were successfully mapped using the bitr function above
@@ -562,89 +567,59 @@ kk2 <- gseKEGG(geneList     = kegg_gene_list,
 ## Ridgeplot
 Helpful to interpret up/down-regulated pathways.
 ```{r fig.width=18, fig.height=12}
-gseKEGG(gmt_e) + labs(x = "enrichment distribution")
+gseKEGG(kk2) + labs(x = "enrichment distribution")
 ```
 
 #Pathview
 This will create a PNG and *different* PDF of the enriched KEGG pathway.  
 ```{r, message=F, warning=F, echo = TRUE}
 # Produce the native KEGG plot (PNG)
-dme <- pathview(gene.data=kegg_gene_list, pathway.id="hsa03015", species = kegg_organism)
+dme <- pathview(gene.data=kegg_gene_list, pathway.id="hsa04620", species = kegg_organism)
 # Produce a different plot (PDF) (not displayed here)
-dme <- pathview(gene.data=kegg_gene_list, pathway.id="hsa03015", species = kegg_organism, kegg.native = F)
+dme <- pathview(gene.data=kegg_gene_list, pathway.id="map04620", species = kegg_organism, kegg.native = F)
 ```
 
 ```{r pressure, echo=TRUE, fig.cap="KEGG Native Enriched Pathway Plot", out.width = '100%'}
 knitr::include_graphics("hsa03015.pathview.png")
 ```
-# Variables interactions
 
-## COVID-19 exposition, dose, sex, age, and sex.
+## Heatmap of DEGs
 
-```{r echo=FALSE}
-designMatrix <- model.matrix(~ 0 + ICUstat + sex + age_bin + age_bin*sex, data = sampleTable) 
- 
-#Step 2: Define contrast matrix
-contrastMatrix <- makeContrasts(ICUstatICU - ICUstatNonICU , levels=make.names(colnames(designMatrix)))
+```{r heatmap_degs}
+edb_gene_length <- edb_genes %>%
+  mutate(gene_length = end - start) %>%
+  select(symbol, gene_length)
+rpkm_filtered <- rpkm(counts_filtered, gene.length = edb_gene_length[edb_gene_length$symbol %in% rownames(counts_filtered),]$gene_length)
 
+rpkm_filtered <- rpkm_filtered[, pmatch(sampleTable$sample_ID, colnames(rpkm_filtered))]
+colnames(rpkm_filtered) <- sampleTable$sample_ID
+all(rownames(sampleTable$sample_ID) == colnames(rpkm_filtered))
 
-#Step 3: Fit model
-dge <- DGEList(countTable)
-dge <- calcNormFactors(dge)
-dge <- estimateDisp(dge, designMatrix, robust = TRUE) 
-fit <- glmQLFit(dge, designMatrix, robust = TRUE)
-
-#Step 4: Perform hypothesis testing
-res <- glmQLFTest(fit, contrast = contrastMatrix)
-res <- topTags(res, n = nrow(countTable))
-sigRes <- subset(res$table, FDR < 0.05 & abs(logFC) > 1) 
-
-#Visualize results
-volcanoPlot <- ggplot(res$table, aes(x = logFC, y = -log10(FDR),
-                                     color = ifelse(FDR < 0.05 & abs(logFC) > 1, "darkred", "grey"))) +
-  geom_point() +
-  xlab(expression("Fold Change (Log"[2]*")")) +
-  ylab(expression("Adjusted P value (Log"[10]*")")) +
-  geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
-  geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) + 
-  theme_minimal() +
-  theme(legend.position = "none") +
-  scale_colour_manual(values = c("darkred", "grey", "steelblue")) + 
-  geom_text_repel(aes(x = logFC, y = -log10(FDR), 
-                      label = rownames(res$table)[1:10],
-                      size = 2, color = "steelblue"),
-                  data = res$table[1:10, ])
-print(volcanoPlot)
-```
-
-### Enrichment plot
-
-```{r echo=FALSE}
-#Visualize significant terms
-enrichPlots <- list()
-
-for(res in names(enrichmentRes)){
-  plotDF <- enrichmentRes[[res]][1:10, ]
-  plotDF$Term = str_trunc(plotDF$Term, 45)
-  plotDF$Term <- factor(plotDF$Term, levels = rev(plotDF$Term))
-  
-  enrichPlot <- ggplot(plotDF, aes(x = Term, y = -log10(Adjusted.P.value))) +
-    geom_bar(stat = "identity", width = 0.05) + geom_point(size = 3) +
-    theme_minimal() +
-    theme(text = element_text(size = 10),
-          plot.title = element_text(hjust = (5 / nchar(res)) * 2), 
-          plot.margin = margin(t = 5, r = 50, b = 5, unit = "pt"), 
-          axis.text.y = element_text(size = 8)) +
-    coord_flip() +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") + 
-    theme_bw() +
-    labs(title = res, y = expression("Adjusted P value, Log"[10]*""))
-  enrichPlots[[res]] <- enrichPlot 
-  }
-
-{
-  plot(arrangeGrob(grobs = enrichPlots))
+extract_degs_names <-  function(x){
+  subsetted <- results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol") %>%
+    filter(log2FoldChange > .5 & padj < 0.05) %>%
+    select(gene_symbol)
+  return(subsetted)
 }
+
+
+degs_names <- lapply(names(results_list_plot), extract_degs_names)
+degs_names <- unique(data.table::rbindlist(degs_names))[[1]]
+degs_names
+rpkm_filtered[degs_names,] %>% 
+  pheatmap(color = colors,
+           show_rownames = F,
+           show_colnames = F,
+           clustering_method = "single",
+           annotation_col = Metadata,
+           scale = "row")
+
+to_venn <- list(neg_dose1 = "", 
+                pos_dose1 = degs_names[[2]][[1]],
+                neg_dose2 = degs_names[[3]][[1]], 
+                pos_dose2 = degs_names[[2]][[1]])
+
+ggVennDiagram(to_venn)
 ```
 
 # Prepare data for machine learning algorithms
