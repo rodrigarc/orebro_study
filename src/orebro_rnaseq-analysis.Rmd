@@ -324,6 +324,7 @@ resultsNames(dds2)
 resultsNames(dds3)
 
 # Results dds1
+res_baseline <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_0_dose1", "Neg_0_dose1")))
 res_neg_dose1 <- as.data.frame(results(dds1, contrast = c("conditions", "Neg_24_dose1", "Neg_0_dose1")))
 res_pos_dose1 <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_24_dose1", "Pos_0_dose1")))
 res_neg_dose2 <- as.data.frame(results(dds1, contrast = c("conditions", "Neg_24_dose2", "Neg_0_dose2")))
@@ -345,9 +346,9 @@ Volcano plot for data exploratory analysis, filtering for significant values wit
 ```{r}
 # check only the negative fold change to see if there's a different pahtway of negative fold changes
 
-results_list <- list(res_neg_dose1, res_pos_dose1, res_neg_dose2, res_pos_dose2, res_pos, res_neg, res_dose1, res_dose2)
+results_list <- list(res_baseline, res_neg_dose1, res_pos_dose1, res_neg_dose2, res_pos_dose2, res_pos, res_neg, res_dose1, res_dose2)
 
-names(results_list) <- c("neg_dose1", "pos_dose1", "neg_dose2", "pos_dose2","pos","neg", "dose1", "dose2") 
+names(results_list) <- c("baseline", "neg_dose1", "pos_dose1", "neg_dose2", "pos_dose2", "pos","neg", "dose1", "dose2") 
     results_list_plot <- lapply(results_list, function(x) {
   x <- x %>% mutate(test = case_when(padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
                                      padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
@@ -420,11 +421,15 @@ gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
 
 ```{r echo=TRUE, fig.width=15, fig.height=8}
 
+#Removing items without significant results from list
+enrichment_list_up[c("neg_dose1")] <- NULL
+enrichment_list_down[c("baseline", "neg_dose1", "pos_dose1", "neg", "dose1")] <- NULL
+
 #Visualize significant terms
-enrichment_list <- enrichment_list[-c(1)]
+enrichment_list <- enrichment_list_up
 
 plots_enrich <- list()
-for(pathway in 1:length(enrichment_list[[1]])){
+for(pathway in 1:length(enrichment_list_up[[1]])){
   
   rbinded_enrich_list <- lapply(enrichment_list, function(x)x[[pathway]])
   print(names(enrichment_list[[1]])[[pathway]])
