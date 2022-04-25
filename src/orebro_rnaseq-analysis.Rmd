@@ -348,7 +348,7 @@ Volcano plot for data exploratory analysis, filtering for significant values wit
 
 results_list <- list(res_baseline, res_neg_dose1, res_pos_dose1, res_neg_dose2, res_pos_dose2, res_pos, res_neg, res_dose1, res_dose2)
 
-names(results_list) <- c("baseline", "neg_dose1", "pos_dose1", "neg_dose2", "pos_dose2", "pos","neg", "dose1", "dose2") 
+names(results_list) <- c("Baseline", "Naïve Dose 1", "Conv Dose 1", "Naïve Dose 2", "Conv Dose 2", "Conv","Naïve", "Dose 1", "Dose 2") 
     results_list_plot <- lapply(results_list, function(x) {
   x <- x %>% mutate(test = case_when(padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
                                      padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
@@ -361,27 +361,54 @@ names(results_list) <- c("baseline", "neg_dose1", "pos_dose1", "neg_dose2", "pos
 .volcano_plot <-  function(x){
   subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 3 & padj < 0.05)
   
+  # count up regulated DEGs
+  deg_number_up <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), log2FoldChange >= 1 & padj < 0.05) %>%
+    nrow()
+  # count down regulated DEGs
+  deg_number_down <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), log2FoldChange <= -1 & padj < 0.05) %>%
+    nrow()
+  
   results_list_plot[[x]] %>% 
   ggplot(aes(x=log2FoldChange,y=-log10(padj))) +
-  geom_point(aes(colour=test), size=1, alpha=0.3) +
+  geom_point(aes(colour=test), size=3, alpha=0.3) +
   scale_color_manual(values = c("Down regulated"="blue", "Not significant" ="grey80", "Up regulated"="red")) +
   xlab(expression("Fold Change (Log"[2]*")")) +
   ylab(expression("Adjusted P value (Log"[10]*")")) +
   geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
   geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
-  geom_label_repel(data = subsetted, aes(log2FoldChange,-log10(padj),label= gene_symbol), max.overlaps = 10) +
-  xlim(-20,20) +
+#  geom_label_repel(data = subsetted, aes(log2FoldChange,-log10(padj),label= gene_symbol), max.overlaps = 10) +
+  xlim(-2,6) +
   ylim(0,10) +
   ggtitle(x) +  
-  cowplot::theme_cowplot() +
+  annotate(
+        geom='text',
+        colour = "red",
+        size = 7,
+        x= 5, y=10,
+        hjust=0,
+        label=paste0('n=',deg_number_up)
+    ) +
+    annotate(
+        geom='text',
+        colour = "blue",
+        size = 7,
+        x= -2, y= 10,
+        hjust=0,
+        label=paste0('n=',deg_number_down)
+    ) +
+  cowplot::theme_cowplot(font_size = 20, line_size = 1.5, rel_small = 1, rel_tiny = 4,font_family = "Arial") +
   theme(legend.position = 'none')
   }
 
 volcano_plots <- lapply(names(results_list_plot), .volcano_plot)
-#names(volcano_plots) <- names(results_list_plot)
+names(volcano_plots) <- names(results_list_plot)
 volcano_plots
-lapply(names(volcano_plots), function(x) ggsave(filename = paste0("../", figures.dir, x,"_volcano_plot.pdf"), 
+
+lapply(names(volcano_plots), function(x) ggsave(filename = paste0("../", figures.dir, x,"_volcano_plot.png"), width = 7, height = 7,
                                          plot = volcano_plots[[x]]))
+
+
+
 
 ```
 
