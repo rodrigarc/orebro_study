@@ -1,0 +1,244 @@
+---
+title: "Frank gene-array analysis"
+author: "Rodrigo Arcoverde Cerveira"
+date: '`r format(Sys.Date(), "%Y-%m-%d")`'
+output: html_document
+abstract: Örebro study RNA-seq data analysis.
+knit: (function(inputFile, encoding) {
+          rmarkdown::render(inputFile,
+                            encoding = encoding, 
+                            output_file = paste0(
+                              xfun::sans_ext(inputFile), '_', Sys.Date(), '.html'),
+                                output_dir = "../results/lab_book/")})
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r global.options, include=FALSE}
+#setting up figures and chunks messages
+
+knitr::opts_knit$set(echo = TRUE,
+                     root.dir = getwd(),
+                     fig.width = 6, fig.height = 5,
+                     fig.align = "center",
+                     out.width = 768,
+                     fig.pos = "H",
+                     warning = FALSE, 
+                     message = FALSE)
+knitr::opts_chunk$set(warning = FALSE,
+                      message = FALSE,
+                      fig.width = 6, fig.height = 5,
+                     fig.align = "center",
+                     out.width = 768,
+                     fig.pos = "H")
+
+result.dir <- paste0("results/",Sys.Date(),"/")
+figures.dir <- paste0("results/",Sys.Date(),"/", "figures/")
+## creates result.dir with date in if not existent
+ifelse(isFALSE(dir.exists(paste0("../",result.dir))), dir.create(paste0("../",result.dir),recursive = TRUE),"Result directory for today exists already!")
+ifelse(isFALSE(dir.exists(paste0("../",figures.dir))), dir.create(paste0("../",figures.dir),recursive = TRUE),"Result directory for today exists already!")
+
+options(stringsAsFactors = FALSE) 
+```
+
+## Loading libraries
+
+```{r, message=FALSE}
+library(clusterProfiler)
+library(dplyr)
+library(limma)
+library(ggfortify)
+library(ggplot2)
+```
+
+
+## Download and load data
+
+```{r}
+# Read data
+counts_raw <- data.table::fread("../data/moderna/Liang_et_al.csv", header = TRUE, sep = ",") %>% tidyr::drop_na() %>% select(-"Feature Numbers") %>% as.data.frame
+# Read metadata
+metadata <- read.csv("../data/moderna/Liang_et_al_metadata.csv", sep = ",")
+# Read probe_info
+ProbeInfo <- read.csv(file = "../data/moderna/ProbeInfo_klara.csv", header = T, row.names = 1, check.names = FALSE)
+# Read blood transcription module
+gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
+
+# Agregate genes with same *ID_REF*
+counts_raw <- aggregate(counts_raw[,-1], list(ID_REF=counts_raw[,1]), FUN = mean)
+write.csv(counts_raw, "../data/moderna/counts_raw_deduplicated.csv")
+
+# Rename based on probe_indo
+counts_raw <- counts_raw %>% 
+  mutate(ID_REF = plyr::mapvalues(ID_REF, from = rownames(ProbeInfo), to = ProbeInfo$GeneID)) %>%
+  rename(genes = ID_REF) 
+  
+# Filter rows without genes or low value in samples
+counts_filter <- counts_raw %>%
+  filter(genes != 0, !grepl('^\\d+$', genes)) %>%
+  filter_all(any_vars(is.numeric(.) & . > 10))
+
+counts_filter <- aggregate(counts_filter[,-1], list(genes=counts_filter[,1]), FUN = sum)
+rownames(counts_filter) <- counts_filter$genes
+counts_filter <- dplyr::select(counts_filter, -c(genes))
+
+# Synchronize count data with sample table
+counts_filter <- counts_filter[, pmatch(metadata$raw_data_file, colnames(counts_filter))]
+all(metadata$raw_data_file == colnames(counts_filter))
+
+```
+
+## PCA
+```{r QC}
+# Calculate log2 
+counts_log2 <- log2(counts_filter)
+
+# Run PCA
+pcaRes <- prcomp(t(counts_log2))
+autoplot(pcaRes, data = metadata, colour = 'condition') +
+  theme_classic()
+
+```
+## Design model for DEGs
+
+```{r design}
+# Design model
+group <- metadata$condition
+design <- model.matrix(~ 0 + group)
+colnames(design) <- gsub("group", "", colnames(design))
+
+
+contr.matrix <- makeContrasts(
+   muscle_LN_vaccinevsmuscle_LN_saline = muscle_LN_vaccine - muscle_LN_saline , 
+   muscle_vaccinevsmuscle_saline = muscle_vaccine - muscle_saline , 
+   skin_vaccinevsskin_saline = skin_vaccine - skin_saline, 
+   skin_LN_vaccinevsskin_LN_saline = skin_LN_vaccine - skin_LN_saline,
+   levels = colnames(design))
+contr.matrix
+
+```
+
+## DEG analysis
+
+```{r deg}
+v <- voom(counts_filter, design, plot=TRUE)
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=contr.matrix)
+efit <- eBayes(vfit)
+plotSA(efit, main="Final model: Mean-variance trend")
+
+```
+## Summary DEGs
+
+```{r degs_summary}
+summary(decideTests(efit))
+tfit <- eBayes(vfit)
+dt <- decideTests(tfit, adjust.method = "fdr")
+summary(dt)
+contr.matrix
+vennDiagram(dt, cex = .7, circle.col = c("red","blue","green","black"))
+```
+
+```{r processing_volcano}
+# Create dataframes for each contrast
+muscle_LN <- topTable(tfit, adjust.method = "fdr", coef = 1, n = Inf)
+muscle <- topTable(tfit, adjust.method = "fdr", coef = 2, n = Inf)
+skin <- topTable(tfit, adjust.method = "fdr", coef = 3, n = Inf)
+skin_LN <- topTable(tfit, adjust.method = "fdr", coef = 4, n = Inf)
+
+# Join dataframes as list
+res_list <- list(muscle_LN, muscle, skin, skin_LN)
+names(res_list) <- c("muscle_LN", "muscle", "skin", "skin_LN")
+
+# Add color for up/down regulated genes with >/< 1 FC
+res_list <- lapply(res_list, function(x) {
+  x <- x %>% mutate(test = case_when(adj.P.Val < 0.05 & logFC >= 1 ~ "Up regulated",
+                                     adj.P.Val < 0.05 & logFC <= -1 ~ "Down regulated",
+                                     TRUE ~ "Not significant"),
+                    )
+  })
+
+combined_res <- data.table::rbindlist(res_list, idcol = TRUE)
+
+```
+### Volcano plots
+```{r volcano_plot}
+
+combined_res %>%
+  ggplot(aes(x=logFC,y=-log10(adj.P.Val))) +
+  geom_point(aes(colour=test), size=1, alpha=0.3) +
+  scale_color_manual(values = c("Down regulated"="blue", "Not significant" ="grey80", "Up regulated"="red")) +
+  labs(x = expression("Fold Change (Log"[2]*")"),
+       y = expression("Adjusted P value (Log"[10]*")"),
+       colour = "") +
+  geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
+  geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
+  cowplot::theme_cowplot(line_size = 1.5, rel_small = 1.2, rel_tiny = 1,font_family = "Arial") +
+  facet_wrap(~.id)
+
+```
+## Gene set enrichment analysis
+
+### Processing input
+
+```{r GSEA}
+
+process_to_gsea <- function(x){
+  original_gene_list <- x$logFC
+  names(original_gene_list) <- rownames(x)
+  gene_list<-na.omit(original_gene_list)
+  gene_list <- sort(gene_list, decreasing = TRUE)
+}
+
+ls_processed <- lapply(res_list, process_to_gsea)
+list_gse <- lapply(ls_processed, function(x) GSEA(geneList=x, 
+            TERM2GENE = gmt,
+             minGSSize = 3, 
+             maxGSSize = 800, 
+            nPermSimple = 10000,
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             pAdjustMethod = "fdr"))
+
+```
+
+### Plotting GSEA
+
+```{r plot_GSEA_ridgeplot}
+
+lapply(list_gse, ridgeplot)
+
+```
+```{r GSEA_heatmap}
+my_palette <- colorRampPalette(c("#265891", "white", "#B80F20"))(n = 20)
+combined_gsea <- data.table::rbindlist(lapply(list_gse, as.data.frame), idcol = TRUE) %>%
+  group_by(.id) %>% arrange(desc(NES)) %>% ungroup()
+
+to_heatmap <- combined_gsea %>%
+  select(.id,ID,NES) %>%
+  filter(NES > 2.1 | NES < -2, !grepl("TBA", ID)) %>%
+  tidyr::pivot_wider(values_from = NES, names_from = ID) %>%
+  mutate(across(where(anyNA), ~ tidyr::replace_na(., 0))) %>%
+  t()
+colnames(to_heatmap) <- to_heatmap[1,] 
+to_heatmap <- to_heatmap[-1,]
+
+
+{pdf(paste0("../",result.dir, "heatmap_frank.pdf"))
+ matrix(as.numeric(to_heatmap),ncol = ncol(to_heatmap)) %>%
+   pheatmap::pheatmap(cellwidth = 20, 
+                      cellheight = 6,
+                      cluster_rows = F, cluster_cols = T,
+                      border_color = "black",cutree_cols = 4,
+                      color = my_palette,
+                      labels_col = colnames(to_heatmap),
+                      labels_row = rownames(to_heatmap),treeheight_col = 1,fontsize_row = 6) 
+ dev.off()
+}
+
+```
+### Session info
+
+```{r}
+sessionInfo()
+```
