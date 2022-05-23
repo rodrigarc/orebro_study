@@ -45,6 +45,7 @@ options(stringsAsFactors = FALSE)
 
 ```{r, message=FALSE}
 #if you do not have libraries, they are located in either CRAN or Bioconductor
+library(data.table)
 library(kableExtra)
 library(forcats)
 library(caret)
@@ -79,18 +80,17 @@ library(pathview)
 ## Download and load data
 
 ```{r}
-#reading data
+# Reading data
 counts_raw <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>%  as.data.frame()
 
 sampleTable <- read.table("../data/metadata/sample_metadata.csv", sep = ",", header = TRUE) %>%
-  dplyr::select(-c(X, X.1, X.2, X.3, X.4, X.5, X.6, X.7)) %>%
   mutate(dose = as.factor(plyr::mapvalues(visit, from = c(1,2,4,5), to = c("0_dose1","24_dose1","0_dose2","24_dose2"))),
          group = as.factor(group))
 
-#remove incomplete sample
+# Remove incomplete sample
 sampleTable<-subset(sampleTable, sample_ID!="P22761_1037_S37")
 
-## renaming genes based on emsembl annotation
+# Renaming genes based on emsembl annotation
 edb <- EnsDb.Hsapiens.v86
 edb_genes <- genes(edb) %>% as.data.frame()
 
@@ -98,26 +98,32 @@ counts_raw <- counts_raw %>%
   dplyr::select(-c(Chr, Start, End, Strand, Length)) %>%
   dplyr::mutate(Geneid = plyr::mapvalues(x = counts_raw$Geneid, from = edb_genes$gene_id, to = edb_genes$symbol, warn_missing = FALSE))
 
-## aggregate and sum up genes with same gene symbol, which were basically non-coding RNAs
+# Aggregate and sum up genes with same gene symbol, which were basically non-coding RNAs
 counts_raw <- aggregate(counts_raw[,-1], list(Geneid=counts_raw[,1]), FUN = sum)
 rownames(counts_raw) <- counts_raw$Geneid
 counts_raw <- dplyr::select(counts_raw, -c(Geneid))
 
-# load normalized transcripts per million
+# read antibody data
+
+antibody_data <- read.csv("../data/antibody_data/2022-04-26_antibody-binding-avidity.csv")
+
+# Load normalized transcripts per million
 
 ```
 
-## Inspect raw data
+## Basic Quality Control
+
+### Inspect raw data
 
 Matching metadata to countTable and plotting the raw counts for first visual inspection.
 
 ```{r}
-#Synchronize count data with sample table
+# Synchronize count data with sample table
 counts_raw <- counts_raw[, pmatch(sampleTable$sample_ID, colnames(counts_raw))]
 colnames(counts_raw) <- sampleTable$sample_ID
 all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
 
-#Visualize distribution of raw counts w/ boxplot and density plot
+# Visualize distribution of raw counts w/ boxplot and density plot
 {
   pdf(paste0("../", figures.dir,"raw_counts_QC.pdf"), width = 10,  height = 8, compress = TRUE )
   rafalib::mypar(1,2,mar=c(10,3,3,2))
@@ -128,7 +134,7 @@ all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
 }
 ```
 
-## Filter data
+### Filter data
 
 Plot detection of genes across samples. All samples are more or less close to average so we don't need to discard any samples.
 
@@ -184,7 +190,7 @@ Plot distribution of the filtered counts
 }
 ```
 
-## DESeq object creation, Normalization and data Quality Control
+### DESeq object creation, Normalization and data Quality Control
 
 Generating the DESeq dataset.
 
@@ -231,7 +237,7 @@ boxplot(rlog_matrix ,ylab=expression('Log'[2]~'Read counts'),las=2,main="rlog")
 
 ```
 
-## Heatmap
+### Heatmap
 
 ```{r}
 # Sample heatmap
@@ -261,7 +267,7 @@ colors<-colorRampPalette(rev(brewer.pal(n=7,name="RdBu")))(255)
 print(Heatmap)
 ```
 
-## Principal Component Analyais (PCA)
+### Principal Component Analyais (PCA)
 
 Dimensionality reduction for evaluating outliers and global sample clusters for both quality control but also for primary exploratory analysis.
 
@@ -324,7 +330,16 @@ resultsNames(dds2)
 resultsNames(dds3)
 
 # Results dds1
-res_baseline <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_0_dose1", "Neg_0_dose1")))
+
+# Baselines DEGs
+res_baseline_pos_neg_dose1 <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_0_dose1", "Neg_0_dose1")))
+res_baseline_pos_neg_dose2 <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_0_dose2", "Neg_0_dose2")))
+res_baseline_pos_doses <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_0_dose2", "Pos_0_dose1")))
+res_baseline_neg_doses <- as.data.frame(results(dds1, contrast = c("conditions", "Neg_0_dose2", "Neg_0_dose1")))
+#add vaseline for Pos vs neg regardless of dose (theres is a difference here), and then regardles of statu (not here)
+
+
+# 0-24h Degs
 res_neg_dose1 <- as.data.frame(results(dds1, contrast = c("conditions", "Neg_24_dose1", "Neg_0_dose1")))
 res_pos_dose1 <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_24_dose1", "Pos_0_dose1")))
 res_neg_dose2 <- as.data.frame(results(dds1, contrast = c("conditions", "Neg_24_dose2", "Neg_0_dose2")))
@@ -340,18 +355,22 @@ res_dose2 <- as.data.frame(results(dds3, contrast = c("dose", "24_dose2", "0_dos
 ```
 
 
-## Volcano plots
+### Volcano plots
+
 Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate \< 0.05 and log fold change greater than 1.
 
 ```{r}
 # check only the negative fold change to see if there's a different pahtway of negative fold changes
 
-results_list <- list(res_baseline, res_neg_dose1, res_pos_dose1, res_neg_dose2, res_pos_dose2, res_pos, res_neg, res_dose1, res_dose2)
+results_list <- list(res_baseline_pos_neg_dose1, res_baseline_pos_neg_dose2, res_baseline_pos_doses, res_baseline_neg_doses, res_neg_dose1, res_pos_dose1, res_neg_dose2, res_pos_dose2, res_pos, res_neg, res_dose1, res_dose2)
 
-names(results_list) <- c("Baseline", "Naïve Dose 1", "Conv Dose 1", "Naïve Dose 2", "Conv Dose 2", "Conv","Naïve", "Dose 1", "Dose 2") 
+names(results_list) <- c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", "Baseline Naïve", "Naïve Dose 1", "Conv Dose 1", "Naïve Dose 2", "Conv Dose 2", "Conv","Naïve", "Dose 1", "Dose 2") 
     results_list_plot <- lapply(results_list, function(x) {
-  x <- x %>% mutate(test = case_when(padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
-                                     padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
+  x <- x %>% mutate(test_padj = case_when(pvalue < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
+                                     pvalue < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
+                                     TRUE ~ "Not significant"),
+                    test_pvalue = case_when(pvalue < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
+                                     pvalue < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
                                      TRUE ~ "Not significant"),
                     )
   })
@@ -359,45 +378,46 @@ names(results_list) <- c("Baseline", "Naïve Dose 1", "Conv Dose 1", "Naïve Dos
 # color by group dose1 and dose2, or neg and pos. 2 plots colored based on condition
 # function to plot and save volcano plot
 .volcano_plot <-  function(x){
-  subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 3 & padj < 0.05)
+  subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 2 & pvalue < 0.05)
   
   # count up regulated DEGs
-  deg_number_up <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), log2FoldChange >= 1 & padj < 0.05) %>%
+  deg_number_up <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), log2FoldChange >= 1 & pvalue < 0.05) %>%
     nrow()
   # count down regulated DEGs
-  deg_number_down <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), log2FoldChange <= -1 & padj < 0.05) %>%
+  deg_number_down <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), log2FoldChange <= -1 & pvalue < 0.05) %>%
     nrow()
   
   results_list_plot[[x]] %>% 
-  ggplot(aes(x=log2FoldChange,y=-log10(padj))) +
-  geom_point(aes(colour=test), size=3, alpha=0.3) +
+  ggplot(aes(x=log2FoldChange,y=-log10(pvalue))) +
+  geom_point(aes(colour=test_pvalue), size=3, alpha=0.3) +
   scale_color_manual(values = c("Down regulated"="blue", "Not significant" ="grey80", "Up regulated"="red")) +
   xlab(expression("Fold Change (Log"[2]*")")) +
-  ylab(expression("Adjusted P value (Log"[10]*")")) +
+  ylab(expression("-Log"[10]*"(p-value)")) +
   geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
   geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
-#  geom_label_repel(data = subsetted, aes(log2FoldChange,-log10(padj),label= gene_symbol), max.overlaps = 10) +
+  geom_label_repel(data = subsetted, aes(log2FoldChange,-log10(pvalue),label= gene_symbol), max.overlaps = 10) +
   xlim(-2,6) +
   ylim(0,10) +
-  ggtitle(x) +  
+ # ggtitle(x) +  
   annotate(
         geom='text',
         colour = "red",
-        size = 7,
-        x= 5, y=10,
+        size = 10,
+        x= 4, y=10,
         hjust=0,
-        label=paste0('n=',deg_number_up)
+        label=paste0(deg_number_up)
     ) +
     annotate(
         geom='text',
         colour = "blue",
-        size = 7,
+        size = 10,
         x= -2, y= 10,
         hjust=0,
-        label=paste0('n=',deg_number_down)
+        label=paste0(deg_number_down)
     ) +
-  cowplot::theme_cowplot(font_size = 20, line_size = 1.5, rel_small = 1, rel_tiny = 4,font_family = "Arial") +
-  theme(legend.position = 'none')
+  cowplot::theme_cowplot(font_size = 20, line_size = 1.5, rel_small = 1.6, rel_tiny = 1,font_family = "Arial",rel_large = 4) +
+  theme(legend.position = 'none',
+        axis.title = element_text(size = 35))
   }
 
 volcano_plots <- lapply(names(results_list_plot), .volcano_plot)
@@ -422,7 +442,7 @@ lapply(names(volcano_plots), function(x) ggsave(filename = paste0("../", figures
 # plotCounts(d,gene=rownames(res)[1],intgroup="group",normalized=T)
 ```
 
-## Enrichment analysis
+### Enrichment analysis
 
 Selecting two different databases for search for enrichment analysis. The databases selected were "GO_Biological_Process_2021" and "KEGG_2021_Human". Testing also the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789) using some GSEA package.
 
@@ -432,19 +452,19 @@ listEnrichrDbs()
 
 enrichment_list_up <- lapply(results_list_plot, function(x) {
   enrichr(
-  genes = rownames(x[x$test == "Up regulated", ]),
+  genes = rownames(x[x$test_padj == "Up regulated", ]),
   databases = c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021"))})
 
 enrichment_list_down <- lapply(results_list_plot, function(x) {
   enrichr(
-  genes = rownames(x[x$test == "Down regulated", ]),
+  genes = rownames(x[x$test_padj == "Down regulated", ]),
   databases = c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021"))})
 
 gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
 
 ```
 
-## Visualize enriched pathways
+#### Visualize enriched pathways
 
 ```{r echo=TRUE, fig.width=15, fig.height=8}
 
@@ -488,9 +508,9 @@ lapply(plots_enrich, function(x){
 
 ```
 
-# Gene Set Enrichment Analysis with ClusterProfiler
+### Gene Set Enrichment Analysis with ClusterProfiler
 
-## Annotaions
+#### Annotaions
 
 ```{r, message=F, warning=F}
 # SET THE DESIRED ORGANISM HERE
@@ -499,7 +519,7 @@ organism <- "org.Hs.eg.db"
 library(organism, character.only = TRUE)
 ```
 
-## Prepare Input
+#### Prepare Input
 
 ```{r}
 process_to_gsea <- function(x){
@@ -513,7 +533,7 @@ ls_processed <- lapply(results_list, process_to_gsea)
 
 ```
 
-## Gene Set Enrichment
+#### Gene Set Enrichment
 
 ```{r}
 list_gse <- lapply(ls_processed, function(x) GSEA(geneList=x, 
@@ -529,7 +549,7 @@ list_gse <- lapply(ls_processed, function(x) GSEA(geneList=x,
 ```
 
 
-## Ridgeplot
+#### Ridgeplot
 Helpful to interpret up/down-regulated pathways.
 ```{r fig.width=18, fig.height=12}
 # change coloring for up and downregulated
@@ -542,25 +562,25 @@ rigdgeplots_list
 
 ```
 
-## Dotplot
+#### Dotplot
 ```{r echo=TRUE, fig.width=15, fig.height=8}
-require(DOSE)
-dotplot(gse, showCategory=10, split=".sign") + facet_grid(.~.sign)
+#require(DOSE)
+#dotplot(gse, showCategory=10, split=".sign") + facet_grid(.~.sign)
 ```
 
-## GSEA Plot  
+#### GSEA Plot  
 Traditional method for visualizing GSEA result.  
   
 ```{r fig.height=6, fig.width=8}
 # Use the `Gene Set` param for the index in the title, and as the value for geneSetId
-gseaplot(gse, by = "all", title = gse$Description[55], geneSetID = 55)
-head(gse, 100)
+#gseaplot(gse, by = "all", title = gse$Description[55], geneSetID = 55)
+#head(gse, 100)
 
 ```
 
 
-# KEGG Gene Set Enrichment Analysis
-## Prepare Input
+### KEGG Gene Set Enrichment Analysis
+#### Prepare Input
 ```{r}
 # Convert gene IDs for gseKEGG function
 # We will lose some genes here because not all IDs will be converted
@@ -582,11 +602,11 @@ kegg_gene_list = sort(kegg_gene_list, decreasing = TRUE)
 ```
 
 
-## Create gseKEGG object
+#### Create gseKEGG object
  
 ```{r}
-kegg_organism = "hsa"
-kk2 <- gseKEGG(geneList     = kegg_gene_list,
+#kegg_organism = "hsa"
+#kk2 <- gseKEGG(geneList     = kegg_gene_list,
                organism     = kegg_organism,
                nPerm        = 10000,
                minGSSize    = 3,
@@ -596,13 +616,13 @@ kk2 <- gseKEGG(geneList     = kegg_gene_list,
                keyType       = "ncbi-geneid")
 
 ```
-## Ridgeplot
+#### Ridgeplot
 Helpful to interpret up/down-regulated pathways.
 ```{r fig.width=18, fig.height=12}
-gseKEGG(kk2) + labs(x = "enrichment distribution")
+#gseKEGG(kk2) + labs(x = "enrichment distribution")
 ```
 
-#Pathview
+### Pathview
 This will create a PNG and *different* PDF of the enriched KEGG pathway.  
 ```{r, message=F, warning=F, echo = TRUE}
 # Produce the native KEGG plot (PNG)
@@ -615,13 +635,17 @@ dme <- pathview(gene.data=kegg_gene_list, pathway.id="map04620", species = kegg_
 knitr::include_graphics("hsa03015.pathview.png")
 ```
 
-## Heatmap of DEGs
+### Visualization of DEGS
+
+#### Heatmap of DEGs
 
 ```{r heatmap_degs}
 edb_gene_length <- edb_genes %>%
   mutate(gene_length = end - start) %>%
   select(symbol, gene_length)
-rpkm_filtered <- rpkm(counts_filtered, gene.length = edb_gene_length[edb_gene_length$symbol %in% rownames(counts_filtered),]$gene_length)
+counts_vst <- assay(vst(dds1, blind = FALSE))
+
+rpkm_filtered <- rpkm(counts_vst, gene.length = edb_gene_length[edb_gene_length$symbol %in% rownames(counts_filtered),]$gene_length)
 
 rpkm_filtered <- rpkm_filtered[, pmatch(sampleTable$sample_ID, colnames(rpkm_filtered))]
 colnames(rpkm_filtered) <- sampleTable$sample_ID
@@ -629,11 +653,12 @@ all(rownames(sampleTable$sample_ID) == colnames(rpkm_filtered))
 
 extract_degs_names <-  function(x){
   subsetted <- results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol") %>%
-    filter(log2FoldChange > .5 & padj < 0.05) %>%
-    select(gene_symbol)
+    filter(log2FoldChange > 1 & padj < 0.05) %>%
+    select(gene_symbol, log2FoldChange)
   return(subsetted)
 }
 
+colnames(rpkm_filtered) <- plyr::mapvalues(colnames(rpkm_filtered), from = sampleTable$sample_ID, to = paste(sampleTable$subject_ID, sampleTable$dose,sep="_"))
 
 degs_names <- lapply(names(results_list_plot), extract_degs_names)
 degs_names <- unique(data.table::rbindlist(degs_names))[[1]]
@@ -642,10 +667,14 @@ rpkm_filtered[degs_names,] %>%
   pheatmap(color = colors,
            show_rownames = F,
            show_colnames = F,
-           clustering_method = "single",
+           clustering_method = "ward.D2",
            annotation_col = Metadata,
            scale = "row")
+```
 
+#### Venn Diagram of DEGs
+
+```{r venn_diagram}
 to_venn <- list(neg_dose1 = "", 
                 pos_dose1 = degs_names[[2]][[1]],
                 neg_dose2 = degs_names[[3]][[1]], 
@@ -654,7 +683,344 @@ to_venn <- list(neg_dose1 = "",
 ggVennDiagram(to_venn)
 ```
 
-# Prepare data for machine learning algorithms
+## Pick specific genes for plotting
+
+```{r plot_genes_of_interest}
+sampleTable <- sampleTable %>% mutate(ID_time_dose = paste(subject_ID, dose, sep = "_"))
+
+rpkm_plot <- rpkm_filtered %>% 
+  as.data.frame() %>%
+  tibble::rownames_to_column("gene_symbol") %>%
+  tidyr::pivot_longer(!gene_symbol, values_to = "RPKM") %>%
+  dplyr::rename(ID_time_dose = name) %>%
+  full_join(sampleTable, by = "ID_time_dose") %>%
+  mutate(conditions = factor(conditions, 
+                             levels = c("Neg_0_dose1", "Neg_24_dose1", 
+                                        "Neg_0_dose2", "Neg_24_dose2", 
+                                        "Pos_0_dose1", "Pos_24_dose1", 
+                                        "Pos_0_dose2", "Pos_24_dose2"),
+                             ordered = TRUE)) 
+
+rpkm_plot %>%
+  filter(gene_symbol %in% c("IL1RN", "IL1B", "IL1A", "IL1R1", "CXCL10", "IL1A")) %>%
+  ggplot(aes(y = RPKM, x = conditions, group = subject_ID, color = subject_ID)) +
+  geom_point()+
+  geom_line() +
+  scale_y_log10() +
+  cowplot::theme_cowplot()+
+  ggsci::scale_color_aaas() +
+  labs(y = "Reads per kilo base per million (RPKM)", x = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_grid(~gene_symbol)
+
+
+```
+## Fold-change from normalized data
+
+```{r fold_change}
+set.seed(140)
+to_loop <- unique(sub( "_.*","",colnames(rpkm_filtered)))
+
+df <- list()
+for (column in to_loop){
+  print(column)
+  pattern_0_dose1 <- paste(column, "0_dose1",sep="_")
+  pattern_24_dose1 <- paste(column, "24_dose1",sep="_")
+  pattern_0_dose2 <- paste(column, "0_dose2",sep="_")
+  pattern_24_dose2 <- paste(column, "24_dose2",sep="_")
+  
+  if(column == "222-21"){
+     df[[column]] <- data.frame(genes = rownames(rpkm_filtered),
+                                FC_dose1 = rpkm_filtered[,pattern_24_dose1]/rpkm_filtered[,pattern_0_dose1],
+                                FC_dose2 = NA)
+  }else{
+     df[[column]] <- data.frame(genes = rownames(rpkm_filtered),
+                                FC_dose1 = rpkm_filtered[,pattern_24_dose1]/rpkm_filtered[,pattern_0_dose1],
+                                FC_dose2 = rpkm_filtered[,pattern_24_dose2]/rpkm_filtered[,pattern_0_dose2])
+  }
+}
+  
+fold_changes <- data.table::rbindlist(df, idcol = TRUE) %>%
+  dplyr::rename(sample_ID = .id) %>%
+  tidyr::pivot_wider(names_from = sample_ID,
+                     values_from = c(FC_dose1,FC_dose2)) %>%
+  as.data.frame()
+
+fold_changes <- data.frame(fold_changes, row.names = 1) %>%
+  select(-19) %>%
+  as.matrix()
+fold_changes <- log2(fold_changes)
+fold_changes <- fold_changes[!is.infinite(rowSums(fold_changes)),]
+fold_changes <- fold_changes[is.finite(rowSums(fold_changes)),]
+
+metadata_2 <- sampleTable %>%
+  mutate(heatmap_ID = paste0("FC", gsub("0|24","",dose),"_", gsub("-",".", subject_ID)),
+         dose = gsub("0|24|_","",dose)) %>%
+  select(heatmap_ID,group, dose) %>%
+  distinct()
+rownames(metadata_2) <- metadata_2$heatmap_ID
+
+subset(fold_changes, rownames(fold_changes) %in% degs_names) %>%
+  pheatmap(clustering_method = "complete",
+         cutree_cols = 2,
+          kmeans_k = 20,
+           scale = "none", 
+           show_rownames = FALSE,
+           annotation_col = metadata_2[-1]) 
+subset_fold_changes <- subset(fold_changes, rownames(fold_changes) %in% degs_names)
+
+# Select best k number based on three different approaches
+
+fviz_nbclust(subset_fold_changes, kmeans, k.max = 130 ,method = "silhouette", print.summary = TRUE) + theme(axis.text.x = element_text(angle = 90, size = 5, vjust = .5))
+#fviz_nbclust(subset_fold_changes, kmeans, k.max = 130 ,method = "wss")
+#gap_stat <- cluster::clusGap(subset_fold_changes, FUN = kmeans, nstart = 25, B = 50,
+                    K.max = 130)
+#fviz_gap_stat(gap_stat)
+kmeans_groups <- kmeans(subset_fold_changes, centers = 57, iter.max = 1000)
+fviz_cluster(kmeans_groups, geom = "point",data = subset_fold_changes)
+
+# Subset 10-k
+kmeans_groups <- kmeans(subset_fold_changes, centers = 20, iter.max = 1000)
+fviz_cluster(kmeans_groups, geom = "point",data = subset_fold_changes)
+
+# Join FC with antibody data
+
+joint_ab_data <- t(kmeans_groups$centers) %>%
+  as.data.frame() %>% 
+  rownames_to_column("heatmap_ID") %>%
+  left_join(metadata_2,by = "heatmap_ID") %>%
+  mutate(sample_ID = gsub("\\.","-",gsub(".*_", "",heatmap_ID))) %>%
+  left_join(antibody_data, by="sample_ID") %>%
+  select(group, dose,BMI,as.character(seq(1:20)),Spike_W6,RBD_W6, Spike_W18, Spike_Avidity_W6, Spike_Avidity_W18)
+  #select(group, dose,BMI,as.character(c(3,4,5,21,22,28,37,39,52)),Spike_W6,RBD_W6, Spike_W18, Spike_Avidity_W6, Spike_Avidity_W18)
+
+correlation <- cor(joint_ab_data[-c(1,2)])
+
+res1 <- corrplot::cor.mtest(joint_ab_data[-c(1,2)], conf.level = .95)
+corrplot::corrplot(correlation, 
+                   type="lower",
+                   p.mat = res1$p,
+                   insig = "label_sig",
+                   sig.level = c(.001, .01, .05),
+                   pch.cex = 0.8)
+
+```
+
+### Digging into the clusters that are correlated to antibody responses
+
+```{r digging_clusters}
+
+cluster4 <- names(kmeans_groups$cluster[kmeans_groups$cluster == 4])
+cluster5 <- names(kmeans_groups$cluster[kmeans_groups$cluster == 5])
+cluster7 <- names(kmeans_groups$cluster[kmeans_groups$cluster == 7])
+cluster9 <- names(kmeans_groups$cluster[kmeans_groups$cluster == 8])
+cluster9
+
+fold_changes_df <- as.data.frame(fold_changes)
+fold_changes_df[rownames(fold_changes_df) %in% cluster9,] %>%
+  as.data.frame() %>%
+  rownames_to_column("genes") %>%
+  tidyr::pivot_longer(cols = c(everything(), -genes), names_to = "heatmap_ID", values_to = "FC_log10") %>%
+  left_join(metadata_2,by = "heatmap_ID") %>%
+  mutate(sample_ID = gsub("\\.","-",gsub(".*_", "",heatmap_ID))) %>%
+  left_join(antibody_data, by="sample_ID") %>%
+  ggplot(aes(x = FC_log10, y = RBD_W6)) +
+  geom_point(aes(color = group)) +
+  geom_smooth(method = "lm") +
+  ggpubr::stat_cor(method = "pearson")+
+  scale_y_log10() +
+  facet_wrap(~genes)
+```
+### Second approach for selecting genes correlated to antibody data
+
+## Correlation matrix values
+
+After FDR correction, no genes are significantly correlated to antibody data using this approach. When not adjusting the p-value and reducing the p-value threshold, some genes appear to be correlated.
+
+```{r correlation}
+# Generate new metadata containing subject ID and group only
+metadata_3 <- metadata_2 %>%
+  mutate(subject_ID = gsub(".*_","",heatmap_ID)) %>%
+  rownames_to_column("samples") %>%
+  select(subject_ID, group) %>%
+  distinct()
+  
+# Gather fold-change for dose 1
+fold_changes_corr_1 <- fold_changes_df %>%
+  as.data.frame() %>%
+  rownames_to_column("genes") %>%
+  tidyr::pivot_longer(cols = grep(pattern = "FC_dose1", x = colnames(fold_changes_df), value = TRUE), names_to = "heatmap_ID", values_to = "Log2FC_dose1") %>%
+  mutate(subject_ID = gsub(".*_","",heatmap_ID)) %>%
+  select(subject_ID, Log2FC_dose1, genes, heatmap_ID) %>%
+  data.table::as.data.table()
+# Gather fold-change for dose 2
+fold_changes_corr_2 <- fold_changes_df %>%
+  as.data.frame() %>%
+  rownames_to_column("genes") %>%
+  tidyr::pivot_longer(cols = grep(pattern = "FC_dose2", x = colnames(fold_changes_df), value = TRUE), names_to = "heatmap_ID", values_to = "Log2FC_dose2") %>%
+  mutate(subject_ID = gsub(".*_","",heatmap_ID)) %>%
+  select(subject_ID, Log2FC_dose2, genes, heatmap_ID) %>%
+  data.table::as.data.table()
+
+# Joing fold_change datasets and metadata
+fold_changes_corr <- full_join(fold_changes_corr_1, fold_changes_corr_2, by = c("subject_ID", "genes")) %>%
+  left_join(metadata_3,by = "subject_ID") %>%
+  mutate(sample_ID = gsub("\\.", "-", subject_ID)) %>%
+  left_join(antibody_data, by="sample_ID") %>%
+  select(genes, group, sample_ID, Log2FC_dose2, Log2FC_dose1, sample_ID,Spike_W6,RBD_W6, Spike_W18, Spike_Avidity_W6, Spike_Avidity_W18) 
+
+fold_changes_corr_wider <-  fold_changes_corr %>% tidyr::pivot_wider(values_from = Log2FC_dose1, names_from = genes) 
+
+fold_changes_corr_test <- psych::corr.test(x = fold_changes_corr_wider[-c(1:8)], y = fold_changes_corr_wider[c(4:8)], adjust = "holm", ci = FALSE, method = "pearson")
+
+sum(fold_changes_corr_test$p.adj < 0.05)
+sum(fold_changes_corr_test$p < 0.0001)
+
+fold_changes_corr_test <- merge(fold_changes_corr_test$p,fold_changes_corr_test$r, by = 0 )
+
+corr_gene_names <- fold_changes_corr_test  %>%
+  filter(Spike_W6.x < 0.05, Spike_W18.x < 0.05,Spike_Avidity_W6.x < 0.05, Spike_Avidity_W18.x < 0.05) %>%
+  pull(Row.names)
+
+
+#corr_gene_names <- fold_changes_corr_test  %>%
+#  filter(Spike_W6.y < -.5, Spike_W6.y < -.5, Spike_Avidity_W6.y < -.5, Spike_Avidity_W18.y < -.5) %>%
+#  pull(Row.names)
+corr_gene_names <- fold_changes_corr_test  %>%
+  filter(Spike_W6.y > .5, Spike_W6.y > .5, Spike_Avidity_W6.y > .5, Spike_Avidity_W18.y > .5) %>%
+  pull(Row.names)
+
+
+fold_changes_corr %>%
+  filter(genes %in% corr_gene_names) %>%
+  ggplot(aes(FC_log10, Spike_W18)) +
+  geom_point(aes(color = group)) +
+  scale_y_log10() +
+  geom_smooth(method = "lm") +
+  ggpubr::stat_cor(method = "pearson")+
+  facet_wrap(~genes)
+
+```
+
+### Third approach for correlating antibody with enriched datasets
+
+This approach is based on selecting the blood transcription modules that are enriched for all the datasets we have. Those are related to enrichment in monocytes (M11) and type I interferon response (M127)
+
+```{r}
+btm_modules <- readxl::read_xls("../data/blood_transcription_module/btm_annotation_table.xls") %>% filter(grepl(pattern = "M11.0|M127", x = ID))
+
+M11_genes <- btm_modules %>% filter( ID == "M11.0") %>% pull(`Module member genes`) %>% str_split(",") %>% unlist()
+
+M127_genes <- btm_modules %>% filter( ID == "M127") %>% pull(`Module member genes`) %>% str_split(",") %>% unlist()
+
+fold_changes_df[M127_genes,] %>% t() %>%
+  as.data.frame() %>%
+  rownames_to_column("heatmap_ID") %>%
+  left_join(metadata_2, by = "heatmap_ID") %>%
+  mutate(sample_ID = gsub("\\.","-",gsub(".*_", "",heatmap_ID))) %>%
+  left_join(antibody_data, by="sample_ID") %>%
+  tidyr::pivot_longer(cols =  c("TAP1", "IFIH1","IRF7","PARP9", "STAT1", "PLSCR1","IFITM1","HERC5","DDX60","USP18","RSAD2", "IFIT1") , values_to = "FC_log2", names_to = "genes") %>%
+ggplot(aes(x = FC_log2, y = Spike_W6)) +
+  geom_point(aes(color = group)) +
+  geom_smooth(method = "lm") +
+  ggpubr::stat_cor(method = "spearman")+
+  scale_y_log10() +
+  facet_wrap(~genes + dose, ncol = 4)
+  
+corr_M127 <- fold_changes_df[M127_genes,] %>% t() %>%
+  as.data.frame() %>%
+  rownames_to_column("heatmap_ID") %>%
+  left_join(metadata_2, by = "heatmap_ID") %>%
+  mutate(sample_ID = gsub("\\.","-",gsub(".*_", "",heatmap_ID))) %>%
+  left_join(antibody_data, by="sample_ID") %>%
+  select(c(2:12,30,31,42,43))
+  
+correlation <- cor(corr_M127)
+res1 <- corrplot::cor.mtest(corr_M127, conf.level = .95)
+corrplot::corrplot(correlation, 
+                   type="lower",
+                   p.mat = res1$p,
+                   insig = "label_sig",
+                   sig.level = c(.001, .01, .05),
+                   pch.cex = 0.8)
+
+
+corr_M11 <- fold_changes_df[M11_genes,] %>% t() %>%
+  as.data.frame() %>%
+  rownames_to_column("heatmap_ID") %>%
+  left_join(metadata_2, by = "heatmap_ID") %>%
+  mutate(sample_ID = gsub("\\.","-",gsub(".*_", "",heatmap_ID))) %>%
+  left_join(antibody_data, by="sample_ID") %>%
+  select(c(2:190,7,8,218,219)) 
+corr_M11[is.na(corr_M11)] <- 0
+?cor.test
+correlation <- cor(corr_M11)
+res1 <- corrplot::cor.mtest(corr_M11, conf.level = .95)
+View(res1$p < 0.05)
+names(res1[res1$p < 0.05])
+corrplot::corrplot(correlation, 
+                   type="lower",
+                   p.mat = res1$p,
+                   insig = "label_sig",
+                   sig.level = c(.001, .01, .05),
+                   pch.cex = 0.8)
+
+corr_M11 <- fold_changes_df[M11_genes,] %>% t() %>%
+  as.data.frame() %>%
+  rownames_to_column("heatmap_ID") %>%
+  left_join(metadata_2, by = "heatmap_ID") %>%
+  mutate(sample_ID = gsub("\\.","-",gsub(".*_", "",heatmap_ID))) %>%
+  left_join(antibody_data, by="sample_ID") 
+corr_M11[is.na(corr_M11)] <- 0  
+
+corr_res <- corr_M11 %>%
+  rstatix::cor_test(Spike_W6, method = "spearman")
+```
+
+## Machine learning
+
+### Regularized linear regression
+```{r linear_regression}
+fold_changes_ab_data <- fold_changes_df %>%
+  rownames_to_column("genes") %>%
+  tidyr::pivot_longer(cols = c(everything(), -genes), names_to = "heatmap_ID", values_to = "FC_log10") %>%
+  left_join(metadata_2,by = "heatmap_ID") %>%
+  mutate(sample_ID = gsub("\\.","-",gsub(".*_", "",heatmap_ID))) %>%
+  left_join(antibody_data, by="sample_ID") %>%
+  select(sample_ID, dose, genes,FC_log10, Spike_Avidity_W6) %>%
+  tidyr::pivot_wider(values_from = FC_log10, names_from = genes)
+
+
+# Create training set and testing dataset
+set.seed(140)
+trainIndex <- createDataPartition(seq_len(nrow(fold_changes_ab_data)), p = .8,
+                                  list = FALSE,
+                                  times = 1)
+trainingSet <- fold_changes_ab_data[ trainIndex,]
+testingSet <- fold_changes_ab_data[-trainIndex,]
+
+# Run model
+cvfit <- glmnet::cv.glmnet(y=trainingSet[["Spike_Avidity_W6"]], x=as.matrix(trainingSet[-c(1:3)]), nfolds=16, parallel = TRUE, nlambda = 100, alpha = 1)
+
+plot(cvfit)
+lambda.opt <- 10
+  
+{fitB <- cvfit$glmnet.fit
+plot(fitB, xvar="lambda")
+abline(v=log(lambda.opt))}
+
+coef(fitB, s=lambda.opt) 
+rownames(coef(fitB, s=lambda.opt) )[coef(fitB, s=lambda.opt) [,1]!= 0]
+
+predict(fitB, type="nonzero", s=lambda.opt)
+assess.glmnet(fitB,
+              newy=testingSet[["Spike_Avidity_W6"]], 
+              newx=as.matrix(testingSet[-c(1:3)]))
+glmnet::predict.glmnet(fitB, newx=as.matrix(testingSet[-c(1:3)]))
+
+```
+
+### Prepare data for machine learning algorithms
 
 ```{r}
 #Continuing from Day 2 slide 25
@@ -664,13 +1030,14 @@ ggVennDiagram(to_venn)
 #Filter normalized counts
 
 ## harsh filtering for perform a analysis on your computer
-cofVar <- rowSds(assay(normCounts)) / rowMeans(assay(normCounts)) 
-normCounts <- normCounts[cofVar > quantile(cofVar, 0.9), ] 
-print(nrow(normCounts))
+
+#cofVar <- rowSds(fold_changes) / rowMeans(fold_changes)
+#normCounts <- fold_changes[cofVar > quantile(cofVar, 0.7), ] 
+#print(nrow(normCounts))
 
 ```
 
-## Define caret functions
+### Define caret functions
 
 ```{r}
 #Define model fitting procedure
@@ -680,45 +1047,38 @@ print(nrow(normCounts))
 
 rfSBF$score <- function(x, y){ 
   loadNamespace("pROC") 
-  pROC::auc(pROC::roc(y, x, quiet = TRUE))[1]
+  pROC::auc(pROC::multiclass.roc(y, x, quiet = TRUE))[1]
 }
 #New filter function
 rfSBF$filter <- function(score, x, y){
-top100 <- order(score, decreasing = TRUE)[1:100] 
+top100 <- order(score, decreasing = TRUE)[1:10000] 
 names(score) %in% names(score)[top100]
-}
-
-#Decision tree fit function
-dtSBF <- rfSBF
-dtSBF$fit <- function(x, y, ...){
-C5.0(x = x, y = y) 
 }
 
 #using random forest
 rfSBF$fit <- function(x, y,...){
-randomForest::randomForest(x =x ,y=y, ntree = 3000) 
+randomForest::randomForest(x =x ,y=y, ntree = 1000) 
 }
 ```
 
-## Model fitting (C50 Decision tree)
+### Model fitting (C50 Decision tree)
 
 Decision tree analysis using the `C50` package with Leave-one-out cross-validation (LOOCV).
 
 ```{r}
 
-#Create training set
-trainingSet <- data.frame(t(assay(normCounts)))
 #Train and validate decision tree (C5.0)
-
+levels_classification <- as.factor(cut(trainingSet[[3]], 5, labels=FALSE))
+cut(trainingSet[[3]], 5)
 
 #change for random forest here
-dtControl <- sbfControl(functions = dtSBF, 
+dtControl <- sbfControl(functions = rfSBF, 
                          method = "loocv", 
                          saveDetails = TRUE, 
                          verbose = FALSE)
 
-dtModel <- sbf(trainingSet, 
-                sampleTable$ICUstat, 
+dtModel <- sbf(trainingSet[-c(1:3)], 
+                levels_classification, 
                 sbfControl = dtControl)
 #Show model
 summary(dtModel$fit)
@@ -741,7 +1101,7 @@ varImp(dtModel$fit) %>%
 
 ```
 
-## Model validation (C50 Decision tree)
+### Model validation (C50 Decision tree)
 
 ```{r}
 #function to plot confusion matrix
@@ -790,15 +1150,15 @@ draw_confusion_matrix <- function(cm) {
   text(70, 20, round(as.numeric(cm$overall[2]), 3), cex=1.4)
 }  
 
-cm <- confusionMatrix(dtModel$pred$predictions$pred, sampleTable$ICUstat)
+cm <- confusionMatrix(dtModel$pred$predictions$pred, sampleTable$group)
 
-{
+
  draw_confusion_matrix(cm)
-}
+
 
 ```
 
-## Model fitting (Random Forest)
+### Model fitting (Random Forest)
 
 Decision tree analysis using the `randomForest` package with Leave-one-out cross-validation (LOOCV).
 
@@ -815,7 +1175,7 @@ dtControl <- sbfControl(functions = rfSBF,
                          verbose = FALSE)
 
 dtModel <- sbf(trainingSet, 
-                sampleTable$ICUstat, 
+                sampleTable$group, 
                 sbfControl = dtControl)
 #Show model
 summary(dtModel$fit)
@@ -824,7 +1184,7 @@ summary(dtModel$fit)
 {
 randomForest::importance(dtModel$fit) %>%
     as.data.frame() %>%
-  filter(MeanDecreaseGini > 1) %>%
+ filter(MeanDecreaseGini > .6) %>%
   mutate(Genes = row.names(.),
          variable=fct_reorder(Genes, MeanDecreaseGini)) %>%
   ggplot(aes(x = MeanDecreaseGini, y = variable)) +
@@ -838,7 +1198,7 @@ randomForest::importance(dtModel$fit) %>%
 
 ```
 
-## Plotting number of trees from random forest and estimated errors
+### Plotting number of trees from random forest and estimated errors
 
 ```{r}
 {
@@ -848,10 +1208,10 @@ randomForest::importance(dtModel$fit) %>%
 }
 ```
 
-## Model validation (random forest)
+### Model validation (random forest)
 
 ```{r}
-cm <- confusionMatrix(dtModel$pred$predictions$pred, sampleTable$ICUstat)
+cm <- confusionMatrix(dtModel$pred$predictions$pred, sampleTable$group)
 
 {
 
@@ -860,35 +1220,35 @@ cm <- confusionMatrix(dtModel$pred$predictions$pred, sampleTable$ICUstat)
 }
 ```
 
-## Variable selection based on Machine Learning predictions
+### Variable selection based on Machine Learning predictions
 
 Based on the output of the decision tree and random forest, we have generated a generalized linear model based on the gene *BCL9L*.
 
 ```{r}
 
 # transposing normalized counts
- tCounts <- data.frame(t(assay(normCounts)))
+ tCounts <- data.frame(t(assay(counts_rlog_normalized)))
 
 # processing data for logistic regression
 tCounts <- tCounts %>% 
-  select(c(BCL9L, MYO1B, GZMH, PCOLCE2, BICDL1, PCOLCE2, FCER1A, CACNA2D2)) %>% 
+  select(c(TBC1D3L, ORM1, CCT6P3, KANK1,CAMP)) %>% 
   tibble::rownames_to_column() %>% 
-  inner_join(sampleTable, by = c("rowname" = "sample")) %>% 
-  mutate(group = if_else(ICUstat=="ICU", 1, 0))
+  inner_join(sampleTable, by = c("rowname" = "sample_ID")) %>% 
+  mutate(group_plot = if_else(group=="Pos", 1, 0))
 
 # genelized linear model for logistic regression taking into account all gene of impotance by decision tree
 #fit <- glm(group ~ BCL9L + MYO1B + GZMH + PCOLCE2 + BICDL1 + PCOLCE2 + FCER1A + CACNA2D2, data = tCounts, family = binomial) 
 
 # genelized linear model for logistic regression taking into account the top 1 gene, BCL9L
-fit <- glm(group ~ BCL9L, data = tCounts, family = binomial) 
+fit <- glm(group ~ TBC1D3L, data = tCounts, family = binomial) 
 summary(fit)
 
 {
-  plot(tCounts$BCL9L,tCounts$group,
-       col=tCounts$ICUstat,
+  plot(tCounts$TBC1D3L,tCounts$group_plot,
+       col=tCounts$group,
        xlab="normalised counts",
-       ylab="Probability") 
-# legend("topleft",levels(tCounts$group),col=1:2,pch=1) 
+       ylab="Probability",) 
+  legend("bottomleft", legend = levels(tCounts$group),col=1:2,pch=1) 
   a <- coef(fit)[1] # Estimated  value of a 
   b <- coef(fit)[2] # Estimated  value of b 
   x <- seq(0,15,0.1)  # x-values for the curve 
@@ -898,7 +1258,7 @@ summary(fit)
 }
 ```
 
-## Session info
+### Session info
 
 ```{r}
 sessionInfo()
