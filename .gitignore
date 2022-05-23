@@ -8,6 +8,9 @@ src/.Rhistory
 *.json
 *.zip
 *.tsv
+*.csv
+*.xlsx
+*.xls
 *.txt
 *.sf
 *.RData
