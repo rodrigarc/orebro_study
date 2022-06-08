@@ -508,6 +508,67 @@ lapply(plots_enrich, function(x){
 
 ```
 
+
+### Testing other visualization options
+
+```{r}
+#Removing items without significant results from list
+enrichment_list_up[c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", "Baseline Naïve", "Conv", "Naïve", "Dose 1", "Dose 2")] <- NULL
+enrichment_list_down[c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", "Baseline Naïve",  "Naïve Dose 1","Conv", "Naïve", "Dose 1", "Dose 2")] <- NULL
+
+## Upregulated 
+plots_enrich <- list()
+for(pathway in 1:length(enrichment_list_up[[1]])){
+  
+  rbinded_enrich_list <- lapply(enrichment_list_up, function(x)x[[pathway]])
+  print(names(enrichment_list_up[[1]])[[pathway]])
+  rbinded_enrich_df <- data.table::rbindlist(l = rbinded_enrich_list, idcol = TRUE, fill = TRUE)
+  
+  plots_enrich[[pathway]] <- rbinded_enrich_df %>%
+  group_by(.id) %>%
+  arrange(Adjusted.P.value)%>%
+  slice(1:10) 
+  
+}
+# library(forcats), reorder GO terms after adjusted p value
+lapply(plots_enrich, function(x){
+  x %>%
+  mutate(Term = fct_reorder(Term, desc(-log10(Adjusted.P.value)))) %>%
+  ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
+    geom_bar(stat = "identity", fill = "dark red", width = .7) +
+    theme_classic() +
+    coord_flip() +
+    labs(x = "", y = expression("Adjusted P value, Log"[10]*""))
+})
+
+## Downregulated
+plots_enrich <- list()
+for(pathway in 1:length(enrichment_list_down[[1]])){
+  
+  rbinded_enrich_list <- lapply(enrichment_list_down, function(x)x[[pathway]])
+  print(names(enrichment_list_down[[1]])[[pathway]])
+  rbinded_enrich_df <- data.table::rbindlist(l = rbinded_enrich_list, idcol = TRUE, fill = TRUE)
+  
+  plots_enrich[[pathway]] <- rbinded_enrich_df %>%
+  group_by(.id) %>%
+  arrange(Adjusted.P.value)%>%
+  slice(1:10) 
+    
+}
+# library(forcats), reorder GO terms after adjusted p value
+lapply(plots_enrich, function(x){
+  x %>%
+  mutate(Term = fct_reorder(Term, -log10(Adjusted.P.value))) %>%
+  ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
+    geom_bar(stat = "identity", fill = "dark blue", width = .7) +
+    theme_classic() +
+    coord_flip() +
+    labs(x = "", y = expression("Adjusted P value, Log"[10]*"")) +
+    facet_grid(~.id)
+  })
+
+```
+
 ### Gene Set Enrichment Analysis with ClusterProfiler
 
 #### Annotaions
