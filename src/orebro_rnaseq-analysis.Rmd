@@ -469,8 +469,8 @@ gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
 ```{r echo=TRUE, fig.width=15, fig.height=8}
 
 #Removing items without significant results from list
-enrichment_list_up[c("neg_dose1")] <- NULL
-enrichment_list_down[c("baseline", "neg_dose1", "pos_dose1", "neg", "dose1")] <- NULL
+# enrichment_list_up[c("neg_dose1")] <- NULL
+# enrichment_list_down[c("baseline", "neg_dose1", "pos_dose1", "neg", "dose1")] <- NULL
 
 #Visualize significant terms
 enrichment_list <- enrichment_list_up
@@ -530,16 +530,25 @@ for(pathway in 1:length(enrichment_list_up[[1]])){
   slice(1:10) 
   
 }
+
+names(plots_enrich) <- c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021")
+
 # library(forcats), reorder GO terms after adjusted p value
-lapply(plots_enrich, function(x){
+
+up_plots <- lapply(plots_enrich, function(x){
   x %>%
   mutate(Term = fct_reorder(Term, desc(-log10(Adjusted.P.value)))) %>%
   ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
     geom_bar(stat = "identity", fill = "dark red", width = .7) +
     theme_classic() +
     coord_flip() +
-    labs(x = "", y = expression("Adjusted P value, Log"[10]*""))
+    labs(x = "", y = expression("Adjusted P value, Log"[10]*"")) +
+    facet_wrap( ~.id, nrow = 4, scales = 'free_y', as.table = F, switch = 'y')
 })
+
+names(up_plots) <- names(plots_enrich)
+up_plots
+
 
 ## Downregulated
 plots_enrich <- list()
@@ -555,8 +564,11 @@ for(pathway in 1:length(enrichment_list_down[[1]])){
   slice(1:10) 
     
 }
+
+names(plots_enrich) <- c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021")
+
 # library(forcats), reorder GO terms after adjusted p value
-lapply(plots_enrich, function(x){
+down_plots <- lapply(plots_enrich, function(x){
   x %>%
   mutate(Term = fct_reorder(Term, -log10(Adjusted.P.value))) %>%
   ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
@@ -564,9 +576,10 @@ lapply(plots_enrich, function(x){
     theme_classic() +
     coord_flip() +
     labs(x = "", y = expression("Adjusted P value, Log"[10]*"")) +
-    facet_grid(~.id)
+    facet_wrap( ~.id, nrow = 3, scales = 'free_y', as.table = F, switch = 'y')
   })
-
+names(down_plots) <- names(plots_enrich)
+down_plots
 ```
 
 ### Gene Set Enrichment Analysis with ClusterProfiler
