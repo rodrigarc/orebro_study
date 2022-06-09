@@ -514,7 +514,7 @@ lapply(plots_enrich, function(x){
 ```{r}
 #Removing items without significant results from list
 enrichment_list_up[c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", "Baseline Naïve", "Conv", "Naïve", "Dose 1", "Dose 2")] <- NULL
-enrichment_list_down[c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", "Baseline Naïve",  "Naïve Dose 1","Conv", "Naïve", "Dose 1", "Dose 2")] <- NULL
+enrichment_list_down[c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", "Baseline Naïve",  "Naïve Dose 1", "Conv", "Naïve", "Dose 1", "Dose 2")] <- NULL
 
 ## Upregulated 
 plots_enrich <- list()
@@ -543,7 +543,7 @@ up_plots <- lapply(plots_enrich, function(x){
     theme_classic() +
     coord_flip() +
     labs(x = "", y = expression("Adjusted P value, Log"[10]*"")) +
-    facet_wrap( ~.id, nrow = 4, scales = 'free_y', as.table = F, switch = 'y')
+    facet_wrap( ~.id, nrow = 4, scales = 'free_y', as.table = T, switch = 'y')
 })
 
 names(up_plots) <- names(plots_enrich)
@@ -576,10 +576,31 @@ down_plots <- lapply(plots_enrich, function(x){
     theme_classic() +
     coord_flip() +
     labs(x = "", y = expression("Adjusted P value, Log"[10]*"")) +
-    facet_wrap( ~.id, nrow = 3, scales = 'free_y', as.table = F, switch = 'y')
+    facet_wrap( ~.id, nrow = 3, scales = 'free_y', as.table = T, switch = 'y')
   })
 names(down_plots) <- names(plots_enrich)
 down_plots
+```
+### Arranging Enrichent Overrepresentation plots with Patchwork
+
+```{r}
+### Arrange GO Enrichment Overrepresentation plots with patchwork
+
+# GO biological processes
+
+GO_bio_up <- up_plots[[1]] +
+  ggtitle("GO Biological Processes")
+GO_bio_down <- down_plots[[1]]
+
+# GO molecular function
+GO_mol_up <- up_plots[[3]] +
+  ggtitle("GO Molecular Function")
+GO_mol_down <- down_plots[[3]]
+
+# Arrange plots with patchwork
+go_plot_2 <- (GO_bio_up / GO_bio_down) | (GO_mol_up / GO_mol_down)
+go_plot_2 + plot_annotation(tag_levels = 'a')
+
 ```
 
 ### Gene Set Enrichment Analysis with ClusterProfiler
