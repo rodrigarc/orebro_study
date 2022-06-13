@@ -501,7 +501,7 @@ lapply(plots_enrich, function(x){
     coord_flip() +
     geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") + 
     theme_bw() +
-    labs(y = expression("Adjusted P value, Log"[10]*"")) +
+    labs(y = expression("Adjusted P value, -Log"[10]*"")) +
   facet_wrap(~.id)
 })
 
@@ -539,11 +539,17 @@ up_plots <- lapply(plots_enrich, function(x){
   x %>%
   mutate(Term = fct_reorder(Term, desc(-log10(Adjusted.P.value)))) %>%
   ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
-    geom_bar(stat = "identity", fill = "dark red", width = .7) +
-    theme_classic() +
+    geom_bar(stat = "identity", fill = "dark red", width = .5) +
+    theme_minimal() +
+    theme(text = element_text(size = 10),
+          plot.title = element_text(hjust = (5 / nchar(results_list)) * 2), 
+          plot.margin = margin(t = 5, r = 50, b = 5, unit = "pt"), 
+          axis.text.y = element_text(size = 8)) +
     coord_flip() +
-    labs(x = "", y = expression("Adjusted P value, Log"[10]*"")) +
-    facet_wrap( ~.id, nrow = 4, scales = 'free_y', as.table = T, switch = 'y')
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") + 
+    theme_bw() +
+    labs(x = NULL, y = expression("Adjusted P value, -Log"[10]*"")) +
+  facet_wrap(~.id, nrow = 1)
 })
 
 names(up_plots) <- names(plots_enrich)
@@ -572,11 +578,17 @@ down_plots <- lapply(plots_enrich, function(x){
   x %>%
   mutate(Term = fct_reorder(Term, -log10(Adjusted.P.value))) %>%
   ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
-    geom_bar(stat = "identity", fill = "dark blue", width = .7) +
-    theme_classic() +
+    geom_bar(stat = "identity", fill = "dark blue", width = .5) +
+    theme_minimal() +
+    theme(text = element_text(size = 10),
+          plot.title = element_text(hjust = (5 / nchar(results_list)) * 2), 
+          plot.margin = margin(t = 5, r = 50, b = 5, unit = "pt"), 
+          axis.text.y = element_text(size = 8)) +
     coord_flip() +
-    labs(x = "", y = expression("Adjusted P value, Log"[10]*"")) +
-    facet_wrap( ~.id, nrow = 3, scales = 'free_y', as.table = T, switch = 'y')
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") + 
+    theme_bw() +
+    labs(x = NULL, y = expression("Adjusted P value, -Log"[10]*"")) +
+  facet_wrap(~.id)
   })
 names(down_plots) <- names(plots_enrich)
 down_plots
@@ -585,22 +597,31 @@ down_plots
 
 ```{r}
 ### Arrange GO Enrichment Overrepresentation plots with patchwork
+library(patchwork)
 
 # GO biological processes
-
 GO_bio_up <- up_plots[[1]] +
-  ggtitle("GO Biological Processes")
-GO_bio_down <- down_plots[[1]]
+  ggtitle("GO Biological Processes") +
+  labs(x = "Up Regulated") + 
+  lims(y = c(0, 20))
+GO_bio_down <- down_plots[[1]] +
+  labs(x = "Down Regulated", y = NULL) +
+  lims(y = c(0, 20))
 
 # GO molecular function
 GO_mol_up <- up_plots[[3]] +
-  ggtitle("GO Molecular Function")
-GO_mol_down <- down_plots[[3]]
+  ggtitle("GO Molecular Function") +
+  lims(y = c(0, 6))
+GO_mol_down <- down_plots[[3]] +
+  lims(y = c(0, 6))
 
 # Arrange plots with patchwork
-go_plot_2 <- (GO_bio_up / GO_bio_down) | (GO_mol_up / GO_mol_down)
-go_plot_2 + plot_annotation(tag_levels = 'a')
+go_plot <- (GO_bio_up / GO_bio_down) | (GO_mol_up / GO_mol_down)
+go_plot <- go_plot + plot_annotation(tag_levels = "a")
 
+go_plot
+
+ggsave(filename = paste0("../", figures.dir, "go_plot.png"), plot = go_plot, width = 7, height = 7)
 ```
 
 ### Gene Set Enrichment Analysis with ClusterProfiler
