@@ -105,7 +105,7 @@ counts_raw <- dplyr::select(counts_raw, -c(Geneid))
 
 # read antibody data
 
-antibody_data <- read.csv("../data/antibody_data/2022-04-26_antibody-binding-avidity.csv")
+#antibody_data <- read.csv("../data/antibody_data/2022-04-26_antibody-binding-avidity.csv")
 
 # Load normalized transcripts per million
 
@@ -366,11 +366,11 @@ results_list <- list(res_baseline_pos_neg_dose1, res_baseline_pos_neg_dose2, res
 
 names(results_list) <- c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", "Baseline Naïve", "Naïve Dose 1", "Conv Dose 1", "Naïve Dose 2", "Conv Dose 2", "Conv","Naïve", "Dose 1", "Dose 2") 
     results_list_plot <- lapply(results_list, function(x) {
-  x <- x %>% mutate(test_padj = case_when(pvalue < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
-                                     pvalue < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
+  x <- x %>% mutate(test_padj = case_when(padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
+                                     padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
                                      TRUE ~ "Not significant"),
-                    test_pvalue = case_when(pvalue < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
-                                     pvalue < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
+                    test_pvalue = case_when(padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
+                                     padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
                                      TRUE ~ "Not significant"),
                     )
   })
@@ -468,18 +468,19 @@ gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
 
 ```{r echo=TRUE, fig.width=15, fig.height=8}
 
-#Removing items without significant results from list
-# enrichment_list_up[c("neg_dose1")] <- NULL
-# enrichment_list_down[c("baseline", "neg_dose1", "pos_dose1", "neg", "dose1")] <- NULL
+# Removing elements without significant results from enrichment lists
+enrichment_list_up[sapply(enrichment_list_up, is.null)] <- NULL
+enrichment_list_down[sapply(enrichment_list_down, is.null)] <- NULL
 
-#Visualize significant terms
-enrichment_list <- enrichment_list_up
 
-plots_enrich <- list()
-for(pathway in 1:length(enrichment_list_up[[1]])){
+## Function for plotting over representation plots
+
+plots_op <- function(list){
+  plots_enrich <- list()
+for(pathway in 1:length(list[[1]])){
   
-  rbinded_enrich_list <- lapply(enrichment_list, function(x)x[[pathway]])
-  print(names(enrichment_list[[1]])[[pathway]])
+  rbinded_enrich_list <- lapply(list, function(x)x[[pathway]])
+  print(names(list[[1]])[[pathway]])
   rbinded_enrich_df <- data.table::rbindlist(l = rbinded_enrich_list, idcol = TRUE, fill = TRUE)
   
   plots_enrich[[pathway]] <- rbinded_enrich_df %>%
@@ -487,9 +488,7 @@ for(pathway in 1:length(enrichment_list_up[[1]])){
   arrange(Adjusted.P.value) %>%
   slice(1:10) 
   
-}
-
-lapply(plots_enrich, function(x){
+  plots <- lapply(plots_enrich, function(x){
   x %>%
   ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
     geom_bar(stat = "identity", width = 0.05) + geom_point(size = 3) +
@@ -504,7 +503,13 @@ lapply(plots_enrich, function(x){
     labs(y = expression("Adjusted P value, -Log"[10]*"")) +
   facet_wrap(~.id)
 })
+return(plots)
+  }
+  
+}
 
+plots_op(enrichment_list_up)
+plots_op(enrichment_list_down)
 
 ```
 
@@ -513,25 +518,9 @@ lapply(plots_enrich, function(x){
 
 ```{r}
 #Removing items without significant results from list
-enrichment_list_up[c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", "Baseline Naïve", "Conv", "Naïve", "Dose 1", "Dose 2")] <- NULL
-enrichment_list_down[c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", "Baseline Naïve",  "Naïve Dose 1", "Conv", "Naïve", "Dose 1", "Dose 2")] <- NULL
+enrichment_list_up[c("Baseline Dose 1", "Baseline Dose 2", "Conv", "Naïve", "Dose 1", "Dose 2")] <- NULL
+enrichment_list_down[c("Conv", "Dose 2")] <- NULL
 
-## Upregulated 
-plots_enrich <- list()
-for(pathway in 1:length(enrichment_list_up[[1]])){
-  
-  rbinded_enrich_list <- lapply(enrichment_list_up, function(x)x[[pathway]])
-  print(names(enrichment_list_up[[1]])[[pathway]])
-  rbinded_enrich_df <- data.table::rbindlist(l = rbinded_enrich_list, idcol = TRUE, fill = TRUE)
-  
-  plots_enrich[[pathway]] <- rbinded_enrich_df %>%
-  group_by(.id) %>%
-  arrange(Adjusted.P.value)%>%
-  slice(1:10) 
-  
-}
-
-names(plots_enrich) <- c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021")
 
 # library(forcats), reorder GO terms after adjusted p value
 
@@ -605,7 +594,7 @@ GO_bio_up <- up_plots[[1]] +
   labs(x = "Up Regulated") + 
   lims(y = c(0, 20))
 GO_bio_down <- down_plots[[1]] +
-  labs(x = "Down Regulated", y = NULL) +
+  labs(x = "Down Regulated") +
   lims(y = c(0, 20))
 
 # GO molecular function
@@ -621,7 +610,7 @@ go_plot <- go_plot + plot_annotation(tag_levels = "a")
 
 go_plot
 
-ggsave(filename = paste0("../", figures.dir, "go_plot.png"), plot = go_plot, width = 7, height = 7)
+ggsave(filename = paste0("../", figures.dir, "go_plot.png"), plot = go_plot)
 ```
 
 ### Gene Set Enrichment Analysis with ClusterProfiler
