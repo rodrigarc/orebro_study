@@ -43,8 +43,7 @@ options(stringsAsFactors = FALSE)
 
 ## Loading libraries
 
-```{r, message=FALSE}
-#if you do not have libraries, they are located in either CRAN or Bioconductor
+```{r, results='hide'}
 library(data.table)
 library(kableExtra)
 library(forcats)
@@ -73,59 +72,80 @@ library(devtools)
 library(clusterProfiler)
 library(enrichplot)
 library(pathview)
-
 ```
 
 
-## Download and load data
+## Load and wrangle raw counts
 
 ```{r}
-# Reading data
-counts_raw <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>%  as.data.frame()
+# Load 1st and 2nd dose raw counts
+counts_raw_1_2 <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>%  as.data.frame()
 
-sampleTable <- read.table("../data/metadata/sample_metadata.csv", sep = ",", header = TRUE) %>%
-  mutate(dose = as.factor(plyr::mapvalues(visit, from = c(1,2,4,5), to = c("0_dose1","24_dose1","0_dose2","24_dose2"))),
+# Load 3rd dose raw counts
+counts_raw_3 <- data.table::fread("../data/proces-data_core-facility/3rd_subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>% as.data.frame()
+
+# Join raw count data frames
+counts_raw <- left_join(counts_raw_1_2, counts_raw_3, by = "Geneid")
+
+# Rename genes based on Emsembl annotation
+edb <- EnsDb.Hsapiens.v86
+edb_genes <- genes(edb) %>% as.data.frame()
+  
+# Remove unnecessary columns and convert 'Geneid' to gene names
+counts_raw <- counts_raw %>%
+  dplyr::select(-contains(c("Chr", "Start", "End", "Strand", "Length"))) %>%
+  dplyr::mutate(Geneid = plyr::mapvalues(x = counts_raw$Geneid, 
+                                         from = edb_genes$gene_id, 
+                                         to = edb_genes$symbol, 
+                                         warn_missing = FALSE))
+  
+# Aggregate and sum up genes with same gene symbol (basically non-coding RNAs)
+counts_raw <- aggregate(counts_raw[,-1], list(Geneid=counts_raw[,1]), FUN = sum)
+
+# Change row names to gene names
+rownames(counts_raw) <- counts_raw$Geneid
+counts_raw <- dplyr::select(counts_raw, -c(Geneid))
+
+```
+
+## Load metadata and match with raw counts
+```{r}
+# Load 1st and 2nd dose metadata
+sampleTable <- read.table("../data/metadata/sample_metadata.csv", sep = ",", header = TRUE) 
+
+# Add batch (time of sequencing) and dose column
+sampleTable <- sampleTable %>%
+  mutate(batch = case_when(visit <= 5 ~ "first")) %>% 
+  mutate(dose  = as.factor(plyr::mapvalues(visit, 
+                                          from = c(1,2,4,5),
+                                          to   = c("0_dose1","24_dose1","0_dose2","24_dose2"))),
          group = as.factor(group))
 
 # Remove incomplete sample
 sampleTable<-subset(sampleTable, sample_ID!="P22761_1037_S37")
 
-# Renaming genes based on emsembl annotation
-edb <- EnsDb.Hsapiens.v86
-edb_genes <- genes(edb) %>% as.data.frame()
-
-counts_raw <- counts_raw %>%
-  dplyr::select(-c(Chr, Start, End, Strand, Length)) %>%
-  dplyr::mutate(Geneid = plyr::mapvalues(x = counts_raw$Geneid, from = edb_genes$gene_id, to = edb_genes$symbol, warn_missing = FALSE))
-
-# Aggregate and sum up genes with same gene symbol, which were basically non-coding RNAs
-counts_raw <- aggregate(counts_raw[,-1], list(Geneid=counts_raw[,1]), FUN = sum)
-rownames(counts_raw) <- counts_raw$Geneid
-counts_raw <- dplyr::select(counts_raw, -c(Geneid))
-
-# Read antibody data
-
-#antibody_data <- read.csv("../data/antibody_data/2022-04-26_antibody-binding-avidity.csv")
-
-# Load BTM modules
-gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
-
-# Load normalized transcripts per million
-
+# Synchronize count data with sample table
+counts_raw <- counts_raw[, pmatch(sampleTable$sample_ID, colnames(counts_raw))]
+colnames(counts_raw) <- sampleTable$sample_ID
+all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
 ```
+
+## Load antibody data
+```{r}
+
+# read antibody data
+
+antibody_data <- read.csv("../data/antibody_data/2022-04-26_antibody-binding-avidity.csv")
+```
+
 
 ## Basic Quality Control
 
 ### Inspect raw data
 
-Matching metadata to countTable and plotting the raw counts for first visual inspection.
+Plotting raw counts for first visual inspection.
 
 ```{r}
-# Synchronize count data with sample table
-counts_raw <- counts_raw[, pmatch(sampleTable$sample_ID, colnames(counts_raw))]
-colnames(counts_raw) <- sampleTable$sample_ID
-all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
-
 # Visualize distribution of raw counts w/ boxplot and density plot
 {
   pdf(paste0("../", figures.dir,"raw_counts_QC.pdf"), width = 10,  height = 8, compress = TRUE )
@@ -368,12 +388,11 @@ Volcano plot for data exploratory analysis, filtering for significant values wit
 results_list <- list(res_baseline_pos_neg_dose1, res_baseline_pos_neg_dose2, res_baseline_pos_doses, res_baseline_neg_doses, res_neg_dose1, res_pos_dose1, res_neg_dose2, res_pos_dose2, res_pos, res_neg, res_dose1, res_dose2)
 
 names(results_list) <- c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", "Baseline Naïve", "Naïve Dose 1", "Conv Dose 1", "Naïve Dose 2", "Conv Dose 2", "Conv","Naïve", "Dose 1", "Dose 2") 
-
     results_list_plot <- lapply(results_list, function(x) {
   x <- x %>% mutate(test_padj = case_when(padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
                                      padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
                                      TRUE ~ "Not significant"),
-                    test_padj = case_when(padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
+                    test_padj = case_when(pvalue < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
                                      padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
                                      TRUE ~ "Not significant"),
                     )
@@ -382,8 +401,7 @@ names(results_list) <- c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", 
 # color by group dose1 and dose2, or neg and pos. 2 plots colored based on condition
 # function to plot and save volcano plot
 .volcano_plot <-  function(x){
-  subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), grepl("^IL1RN|^IL1B|^IL1A|^IL1R1|^IL1A|^NOD|^CASP1$|^GSDMD|^NLR|^TNFA$|^TNF$|TNFRSF1A|^IL6$|^IFNAR|PYCARD", gene_symbol) & abs(log2FoldChange) >= 1 & padj < 0.05) %>%
-    mutate(gene_symbol == ifelse(grepl("DDX58", gene_symbol), "RIG-1",gene_symbol)) 
+  subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 2 & pvalue < 0.05)
   
   # count up regulated DEGs
   deg_number_up <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), log2FoldChange >= 1 & pvalue < 0.05) %>%
@@ -400,7 +418,7 @@ names(results_list) <- c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", 
   ylab(expression("-Log"[10]*"(p-value)")) +
   geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
   geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
-  geom_text_repel(data = subsetted, aes(log2FoldChange,-log10(pvalue),label= gene_symbol), max.overlaps = 5, size =7) +
+  geom_label_repel(data = subsetted, aes(log2FoldChange,-log10(pvalue),label= gene_symbol), max.overlaps = 10) +
   xlim(-2,6) +
   ylim(0,10) +
  # ggtitle(x) +  
@@ -429,7 +447,7 @@ volcano_plots <- lapply(names(results_list_plot), .volcano_plot)
 names(volcano_plots) <- names(results_list_plot)
 volcano_plots
 
-  lapply(names(volcano_plots), function(x) ggsave(filename = paste0("../", figures.dir, x,"_volcano_plot.png"), width = 7, height = 7,
+lapply(names(volcano_plots), function(x) ggsave(filename = paste0("../", figures.dir, x,"_volcano_plot.png"), width = 7, height = 7,
                                          plot = volcano_plots[[x]]))
 
 
@@ -465,25 +483,26 @@ enrichment_list_down <- lapply(results_list_plot, function(x) {
   genes = rownames(x[x$test_padj == "Down regulated", ]),
   databases = c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021"))})
 
+gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
+
 ```
 
 #### Visualize enriched pathways
 
 ```{r echo=TRUE, fig.width=15, fig.height=8}
 
-# Removing elements without significant results from enrichment lists
-enrichment_list_up[sapply(enrichment_list_up, is.null)] <- NULL
-enrichment_list_down[sapply(enrichment_list_down, is.null)] <- NULL
+#Removing items without significant results from list
+enrichment_list_up[c("neg_dose1")] <- NULL
+enrichment_list_down[c("baseline", "neg_dose1", "pos_dose1", "neg", "dose1")] <- NULL
 
+#Visualize significant terms
+enrichment_list <- enrichment_list_up
 
-## Function for plotting over representation plots
-
-plots_op <- function(list){
-  plots_enrich <- list()
-for(pathway in 1:length(list[[1]])){
+plots_enrich <- list()
+for(pathway in 1:length(enrichment_list_up[[1]])){
   
-  rbinded_enrich_list <- lapply(list, function(x)x[[pathway]])
-  print(names(list[[1]])[[pathway]])
+  rbinded_enrich_list <- lapply(enrichment_list, function(x)x[[pathway]])
+  print(names(enrichment_list[[1]])[[pathway]])
   rbinded_enrich_df <- data.table::rbindlist(l = rbinded_enrich_list, idcol = TRUE, fill = TRUE)
   
   plots_enrich[[pathway]] <- rbinded_enrich_df %>%
@@ -491,7 +510,9 @@ for(pathway in 1:length(list[[1]])){
   arrange(Adjusted.P.value) %>%
   slice(1:10) 
   
-  plots <- lapply(plots_enrich, function(x){
+}
+
+lapply(plots_enrich, function(x){
   x %>%
   ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
     geom_bar(stat = "identity", width = 0.05) + geom_point(size = 3) +
@@ -503,117 +524,11 @@ for(pathway in 1:length(list[[1]])){
     coord_flip() +
     geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") + 
     theme_bw() +
-    labs(y = expression("Adjusted P value, -Log"[10]*"")) +
+    labs(y = expression("Adjusted P value, Log"[10]*"")) +
   facet_wrap(~.id)
 })
-return(plots)
-  }
-  
-}
-
-plots_op(enrichment_list_up)
-plots_op(enrichment_list_down)
-
-```
 
 
-### Testing other visualization options
-
-```{r}
-#Removing items without significant results from list
-enrichment_list_up[c("Baseline Dose 1", "Baseline Dose 2", "Conv", "Naïve", "Dose 1", "Dose 2")] <- NULL
-enrichment_list_down[c("Conv", "Dose 2")] <- NULL
-
-
-# library(forcats), reorder GO terms after adjusted p value
-
-up_plots <- lapply(plots_enrich, function(x){
-  x %>%
-  mutate(Term = fct_reorder(Term, desc(-log10(Adjusted.P.value)))) %>%
-  ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
-    geom_bar(stat = "identity", fill = "dark red", width = .5) +
-    theme_minimal() +
-    theme(text = element_text(size = 10),
-          plot.title = element_text(hjust = (5 / nchar(results_list)) * 2), 
-          plot.margin = margin(t = 5, r = 50, b = 5, unit = "pt"), 
-          axis.text.y = element_text(size = 8)) +
-    coord_flip() +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") + 
-    theme_bw() +
-    labs(x = NULL, y = expression("Adjusted P value, -Log"[10]*"")) +
-  facet_wrap(~.id, nrow = 1)
-})
-
-names(up_plots) <- names(plots_enrich)
-up_plots
-
-
-## Downregulated
-plots_enrich <- list()
-for(pathway in 1:length(enrichment_list_down[[1]])){
-  
-  rbinded_enrich_list <- lapply(enrichment_list_down, function(x)x[[pathway]])
-  print(names(enrichment_list_down[[1]])[[pathway]])
-  rbinded_enrich_df <- data.table::rbindlist(l = rbinded_enrich_list, idcol = TRUE, fill = TRUE)
-  
-  plots_enrich[[pathway]] <- rbinded_enrich_df %>%
-  group_by(.id) %>%
-  arrange(Adjusted.P.value)%>%
-  slice(1:10) 
-    
-}
-
-names(plots_enrich) <- c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021")
-
-# library(forcats), reorder GO terms after adjusted p value
-down_plots <- lapply(plots_enrich, function(x){
-  x %>%
-  mutate(Term = fct_reorder(Term, -log10(Adjusted.P.value))) %>%
-  ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
-    geom_bar(stat = "identity", fill = "dark blue", width = .5) +
-    theme_minimal() +
-    theme(text = element_text(size = 10),
-          plot.title = element_text(hjust = (5 / nchar(results_list)) * 2), 
-          plot.margin = margin(t = 5, r = 50, b = 5, unit = "pt"), 
-          axis.text.y = element_text(size = 8)) +
-    coord_flip() +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") + 
-    theme_bw() +
-    labs(x = NULL, y = expression("Adjusted P value, -Log"[10]*"")) +
-  facet_wrap(~.id)
-  })
-names(down_plots) <- names(plots_enrich)
-down_plots
-```
-### Arranging Enrichent Overrepresentation plots with Patchwork
-
-```{r}
-### Arrange GO Enrichment Overrepresentation plots with patchwork
-library(patchwork)
-
-# GO biological processes
-GO_bio_up <- up_plots[[1]] +
-  ggtitle("GO Biological Processes") +
-  labs(x = "Up Regulated") + 
-  lims(y = c(0, 20))
-GO_bio_down <- down_plots[[1]] +
-  labs(x = "Down Regulated") +
-  lims(y = c(0, 20))
-
-# GO molecular function
-GO_mol_up <- up_plots[[3]] +
-  ggtitle("GO Molecular Function") +
-  lims(y = c(0, 6))
-GO_mol_down <- down_plots[[3]] +
-  lims(y = c(0, 6))
-
-# Arrange plots with patchwork
-go_plot <- (GO_bio_up / GO_bio_down) | (GO_mol_up / GO_mol_down)
-go_plot <- go_plot + plot_annotation(tag_levels = "a")
-
-go_plot
-
-ggsave(filename = paste0("../", figures.dir, "go_plot.png"), plot = go_plot)
 ```
 
 ### Gene Set Enrichment Analysis with ClusterProfiler
@@ -663,45 +578,12 @@ Helpful to interpret up/down-regulated pathways.
 # change coloring for up and downregulated
 # try also to plot as a heatmap for all the group comparisons
 
-rigdgeplots_list <- lapply(list_gse, ridgeplot, fill = "NES")
+rigdgeplots_list <- lapply(list_gse, ridgeplot)
 lapply(names(rigdgeplots_list), function(x) ggsave(filename = paste0("../", figures.dir, x,"_BTM_plot.pdf"), 
                                          plot = rigdgeplots_list[[x]], width = 15, height = 10))
 rigdgeplots_list
 
 ```
-
-#### Combined GSEA heatmap
-
-```{r gsea_heatmap}
-my_palette <- colorRampPalette(c("#265891", "white", "#B80F20"))(n = 20)
-sel_list_gse <- list_gse[c("Naïve Dose 1","Conv Dose 1", "Naïve Dose 2","Conv Dose 2")]
-combined_gsea <- data.table::rbindlist(lapply(sel_list_gse, as.data.frame), idcol = TRUE) %>%
-  group_by(.id) %>% arrange(desc(NES)) %>% ungroup()
-
-to_heatmap <- combined_gsea %>%
-  select(.id,ID,NES) %>%
-  filter(NES > 2 | NES < -2, !grepl("TBA", ID)) %>%
-  tidyr::pivot_wider(values_from = NES, names_from = ID) %>%
-  mutate(across(where(anyNA), ~ tidyr::replace_na(., 0))) %>%
-  t()
-colnames(to_heatmap) <- to_heatmap[1,] 
-to_heatmap <- to_heatmap[-1,]
-
-
-{pdf(paste0("../",result.dir, "heatmap_gsea.pdf"))
- matrix(as.numeric(to_heatmap),ncol = ncol(to_heatmap)) %>%
-   pheatmap::pheatmap(cellwidth = 20, 
-                      cellheight = 5,
-                      cluster_rows = T, cluster_cols = T,
-                      border_color = "black",cutree_cols = 4,
-                      color = my_palette,
-                      labels_col = colnames(to_heatmap),
-                      labels_row = rownames(to_heatmap),treeheight_col = 1,fontsize_row = 6) 
- dev.off()
-}
-
-```
-
 
 #### Dotplot
 ```{r echo=TRUE, fig.width=15, fig.height=8}
@@ -748,13 +630,13 @@ kegg_gene_list = sort(kegg_gene_list, decreasing = TRUE)
 ```{r}
 #kegg_organism = "hsa"
 #kk2 <- gseKEGG(geneList     = kegg_gene_list,
-#               organism     = kegg_organism,
-#               nPerm        = 10000,
-#               minGSSize    = 3,
-#               maxGSSize    = 800,
-#               pvalueCutoff = 0.05,
-#               pAdjustMethod = "fdr",
-#               keyType       = "ncbi-geneid")
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "fdr",
+               keyType       = "ncbi-geneid")
 
 ```
 #### Ridgeplot
@@ -767,13 +649,13 @@ Helpful to interpret up/down-regulated pathways.
 This will create a PNG and *different* PDF of the enriched KEGG pathway.  
 ```{r, message=F, warning=F, echo = TRUE}
 # Produce the native KEGG plot (PNG)
-#dme <- pathview(gene.data=kegg_gene_list, pathway.id="hsa04620", species = kegg_organism)
+dme <- pathview(gene.data=kegg_gene_list, pathway.id="hsa04620", species = kegg_organism)
 # Produce a different plot (PDF) (not displayed here)
-#dme <- pathview(gene.data=kegg_gene_list, pathway.id="map04620", species = kegg_organism, kegg.native = F)
+dme <- pathview(gene.data=kegg_gene_list, pathway.id="map04620", species = kegg_organism, kegg.native = F)
 ```
 
 ```{r pressure, echo=TRUE, fig.cap="KEGG Native Enriched Pathway Plot", out.width = '100%'}
-#knitr::include_graphics("hsa03015.pathview.png")
+knitr::include_graphics("hsa03015.pathview.png")
 ```
 
 ### Visualization of DEGS
@@ -801,75 +683,33 @@ extract_degs_names <-  function(x){
 
 colnames(rpkm_filtered) <- plyr::mapvalues(colnames(rpkm_filtered), from = sampleTable$sample_ID, to = paste(sampleTable$subject_ID, sampleTable$dose,sep="_"))
 
-degs_names_list <- lapply(names(results_list_plot), extract_degs_names)
-names(degs_names_list) <- names(results_list_plot)
-degs_names <- unique(data.table::rbindlist(degs_names_list))[[1]]
-
-sampleTable <- sampleTable %>% mutate(ID_time_dose = paste(subject_ID, dose, sep = "_"))
-rownames(sampleTable) <- sampleTable$ID_time_dose
-
+degs_names <- lapply(names(results_list_plot), extract_degs_names)
+degs_names <- unique(data.table::rbindlist(degs_names))[[1]]
+degs_names
 rpkm_filtered[degs_names,] %>% 
   pheatmap(color = colors,
            show_rownames = F,
            show_colnames = F,
            clustering_method = "ward.D2",
-           annotation_col = sampleTable[8:9],
+           annotation_col = Metadata,
            scale = "row")
-
 ```
 
 #### Venn Diagram of DEGs
 
 ```{r venn_diagram}
-to_venn <- list(pos_dose1 = degs_names_list[[6]][[1]],
-                neg_dose2 = degs_names_list[[7]][[1]], 
-                pos_dose2 = degs_names_list[[8]][[1]])
+to_venn <- list(neg_dose1 = "", 
+                pos_dose1 = degs_names[[2]][[1]],
+                neg_dose2 = degs_names[[3]][[1]], 
+                pos_dose2 = degs_names[[2]][[1]])
 
-ggVennDiagram(to_venn, label_alpha = 0, label_color = "black",
-              category.names = c("Conv Dose 1","Naïve Dose 2","Conv Dose 2"), set_size = 7, edge_size = .5) +
-  scale_x_continuous(expand = expansion(mult = .2)) +
-  scale_fill_distiller(direction = -1) +
-  scale_color_manual(values = c(rep("black", 3)))
- ggsave(paste0("../",result.dir,"venn_diagram.pdf"),
-         width = 6,height = 5, dpi = 300)
- 
-intersect_degs <- Reduce(intersect, to_venn)
-setdiff_degs_naive <- Reduce(setdiff, list(neg_dose2 = degs_names_list[[7]][[1]],degs_names_list[[8]][[1]], pos_dose1 = degs_names_list[[6]][[1]]))
-setdiff_degs_conv <- Reduce(setdiff, list(degs_names_list[[8]][[1]], degs_names_list[[7]][[1]], degs_names_list[[6]][[1]]))
-
-
-ORA_intersect <- enrichGO(
-  gene = intersect_degs, ont = "BP", OrgDb = org.Hs.eg.db, keyType = "SYMBOL")
-ORA_setdiff_degs_naive <- enrichGO(
-  gene = setdiff_degs_naive, ont = "BP", OrgDb = org.Hs.eg.db, keyType = "SYMBOL")
-ORA_setdiff_degs_conv <- enrichGO(
-  gene = setdiff_degs_conv, ont = "BP", OrgDb = org.Hs.eg.db, keyType = "SYMBOL")
-
-avg_FC <- (res_pos_dose1[intersect_degs,]$log2FoldChange + res_pos_dose2[intersect_degs,]$log2FoldChange + res_neg_dose2[intersect_degs,]$log2FoldChange)/3 
-names(avg_FC) <- rownames(res_pos_dose1[intersect_degs,])
-
-avg_FC_diff_naive <-  res_neg_dose2[setdiff_degs_naive,]$log2FoldChange 
-names(avg_FC_diff_naive) <- rownames(res_pos_dose1[setdiff_degs_naive,])
-
-avg_FC_diff_conv <-  res_pos_dose2[setdiff_degs_conv,]$log2FoldChange 
-names(avg_FC_diff_conv) <- rownames(res_pos_dose2[setdiff_degs_conv,])
-
-dotplot(ORA_intersect)
-dotplot(ORA_setdiff_degs_naive)
-
-
-cnetplot(ORA_intersect, foldChange = avg_FC,cex_label_gene = 0.5,cex_label_category = .8)
-cnetplot(ORA_setdiff_degs_naive, foldChange = avg_FC_diff_naive)
-cnetplot(ORA_setdiff_degs_conv, foldChange = avg_FC_diff_conv)
-
-ggsave(paste0("../",result.dir,"network_intersect_genes.pdf"),
-         width = 6,height = 4, dpi = 300)
+ggVennDiagram(to_venn)
 ```
 
 ## Pick specific genes for plotting
 
 ```{r plot_genes_of_interest}
-
+sampleTable <- sampleTable %>% mutate(ID_time_dose = paste(subject_ID, dose, sep = "_"))
 
 rpkm_plot <- rpkm_filtered %>% 
   as.data.frame() %>%
@@ -884,28 +724,14 @@ rpkm_plot <- rpkm_filtered %>%
                                         "Pos_0_dose2", "Pos_24_dose2"),
                              ordered = TRUE)) 
 
-
 rpkm_plot %>%
-  filter(grepl("^IL1RN|^IL1B|^IL1A|^IL1R1|^IL1A|^NOD|^CASP1$|^GSDMD|^NLR", gene_symbol))  %>%
-  ggplot(aes(y = RPKM, x = dose, group = subject_ID, color = group)) +
+  filter(gene_symbol %in% c("IL1RN", "IL1B", "IL1A", "IL1R1", "CXCL10", "IL1A")) %>%
+  ggplot(aes(y = RPKM, x = conditions, group = subject_ID, color = subject_ID)) +
   geom_point()+
   geom_line() +
   scale_y_log10() +
   cowplot::theme_cowplot()+
-  ggsci::scale_color_npg() +
-  labs(y = "Reads per kilo base per million (RPKM)", x = "") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  facet_grid(~gene_symbol)
-
-
-rpkm_plot %>%
-  filter(grepl("^IL6|^TNF", gene_symbol))  %>%
-  ggplot(aes(y = RPKM, x = conditions, group = subject_ID, color = group)) +
-  geom_point()+
-  geom_line() +
-  scale_y_log10() +
-  cowplot::theme_cowplot()+
-  ggsci::scale_color_npg() +
+  ggsci::scale_color_aaas() +
   labs(y = "Reads per kilo base per million (RPKM)", x = "") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   facet_grid(~gene_symbol)
@@ -966,25 +792,6 @@ subset(fold_changes, rownames(fold_changes) %in% degs_names) %>%
            annotation_col = metadata_2[-1]) 
 subset_fold_changes <- subset(fold_changes, rownames(fold_changes) %in% degs_names)
 
-```
-
-```{r plot_fold_change}
-subset(fold_changes, grepl("^IL6",rownames(fold_changes))) %>%
-  pheatmap(clustering_method = "complete",
-           scale = "none", 
-           show_rownames = TRUE,
-           annotation_col = metadata_2[-1]) 
-
-subset(fold_changes, grepl("^IL1RN|^IL1B|^IL1A|^IL1R1|^IL1A|^NOD|^CASP1$|^GSDMD|^NLR",rownames(fold_changes))) %>%
-  pheatmap(clustering_method = "ward.D2",
-           scale = "none", 
-           show_rownames = TRUE,
-           cluster_rows = F,
-           annotation_col = metadata_2[-1]) 
-
-```
-
-```{r }
 # Select best k number based on three different approaches
 
 fviz_nbclust(subset_fold_changes, kmeans, k.max = 130 ,method = "silhouette", print.summary = TRUE) + theme(axis.text.x = element_text(angle = 90, size = 5, vjust = .5))
