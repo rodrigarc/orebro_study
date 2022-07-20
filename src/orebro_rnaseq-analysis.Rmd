@@ -43,7 +43,7 @@ options(stringsAsFactors = FALSE)
 
 ## Loading libraries
 
-```{r, results='hide'}
+```{r, message=FALSE}
 library(data.table)
 library(kableExtra)
 library(forcats)
@@ -78,14 +78,14 @@ library(pathview)
 ## Load and wrangle raw counts
 
 ```{r}
-# Load 1st and 2nd dose raw counts
-counts_raw_1_2 <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>%  as.data.frame()
+# Load 1st batch raw counts
+counts_raw_1 <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>%  as.data.frame()
 
-# Load 3rd dose raw counts
-counts_raw_3 <- data.table::fread("../data/proces-data_core-facility/3rd_subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>% as.data.frame()
+# Load 2nd batch raw counts
+counts_raw_2 <- data.table::fread("../data/proces-data_core-facility/3rd_subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>% as.data.frame()
 
 # Join raw count data frames
-counts_raw <- left_join(counts_raw_1_2, counts_raw_3, by = "Geneid")
+counts_raw <- left_join(counts_raw_1, counts_raw_2, by = "Geneid")
 
 # Rename genes based on Emsembl annotation
 edb <- EnsDb.Hsapiens.v86
@@ -110,32 +110,57 @@ counts_raw <- dplyr::select(counts_raw, -c(Geneid))
 
 ## Load metadata and match with raw counts
 ```{r}
-# Load 1st and 2nd dose metadata
-sampleTable <- read.table("../data/metadata/sample_metadata.csv", sep = ",", header = TRUE) 
+# Load sample metadata
+sampleTable <- read.table("../data/metadata/sample_metadata.csv", sep = ",", header = TRUE) %>% 
+  dplyr::select(-c(age, sex))
 
-# Add batch (time of sequencing) and dose column
+# Load patient metadata
+patient_metadata <- read.table("../data/metadata/patient_metadata.csv", sep = ",", header = TRUE)
+
+# Join sample and patient metadata
+sampleTable <- sampleTable %>% left_join(patient_metadata, by = "subject_ID")
+
+# Change visits to dose and time point...
 sampleTable <- sampleTable %>%
-  mutate(batch = case_when(visit <= 5 ~ "first")) %>% 
-  mutate(dose  = as.factor(plyr::mapvalues(visit, 
-                                          from = c(1,2,4,5),
-                                          to   = c("0_dose1","24_dose1","0_dose2","24_dose2"))),
-         group = as.factor(group))
+ mutate(dose  = as.factor(plyr::mapvalues(visit, 
+                                          from = c(1, 2, 4, 5, 10, 11, 12),
+                                          to   = c("0_dose1", "24_dose1", "0_dose2", "24_dose2", "0_dose3", "24_dose3", "48_dose3"))),
+         group = as.factor(group)) %>% 
+#...(sex) 0 and 1 to male and female...
+  mutate(sex  = as.factor(plyr::mapvalues(sex, 
+                                          from = c(0, 1),
+                                          to   = c("male", "female"))),
+         group = as.factor(sex)) %>% 
+#...(prior covid) 0 and 1 to neg and pos
+  mutate(prior_covid19  = as.factor(plyr::mapvalues(prior_covid19, 
+                                          from = c(0, 1),
+                                          to   = c("neg", "pos"))),
+         group = as.factor(prior_covid19))
 
-# Remove incomplete sample
-sampleTable<-subset(sampleTable, sample_ID!="P22761_1037_S37")
+# Remove 24dose_2 from subject 21 (was missing 0dose_2)
+sampleTable<- subset(sampleTable, sample_ID!="P22761_1037_S37")
 
-# Synchronize count data with sample table
-counts_raw <- counts_raw[, pmatch(sampleTable$sample_ID, colnames(counts_raw))]
+# Remove one sample from subject 7 (NA values redundant sample)
+sampleTable<- subset(sampleTable, sample_ID!="P26208_1060_S62")
+
+# Remove corresponding samples from count table
+counts_raw <- subset(counts_raw, select = -c(P26208_1060_S62, P22761_1037_S37))
+
+# Match count data with sample table
 colnames(counts_raw) <- sampleTable$sample_ID
+counts_raw <- counts_raw[, pmatch(sampleTable$sample_ID, colnames(counts_raw))]
 all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
+
+# all.equal(colnames(counts_raw), rownames(sampleTable)) -> "97 string mismatches", need to convert dataframe to same class?
 ```
+
 
 ## Load antibody data
 ```{r}
 
 # read antibody data
 
-antibody_data <- read.csv("../data/antibody_data/2022-04-26_antibody-binding-avidity.csv")
+# antibody_data <- read.csv("../data/antibody_data/2022-04-26_antibody-binding-avidity.csv")
 ```
 
 
@@ -144,7 +169,8 @@ antibody_data <- read.csv("../data/antibody_data/2022-04-26_antibody-binding-avi
 ### Inspect raw data
 
 Plotting raw counts for first visual inspection.
-
+Boxplot, the median values are zero across all samples. 
+Histogram, huge peak of zeros. This data set would benefit from a low count filtering.
 ```{r}
 # Visualize distribution of raw counts w/ boxplot and density plot
 {
@@ -155,39 +181,42 @@ Plotting raw counts for first visual inspection.
   par(mfrow=c(1,1))
   dev.off()
 }
+
+boxplot(log2(as.matrix(counts_raw)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Raw data")
+hist(log2(as.matrix(counts_raw)+1),ylab="",las=2,main="Raw data")
 ```
 
 ### Filter data
 
-Plot detection of genes across samples. All samples are more or less close to average so we don't need to discard any samples.
+Plot number of genes detected across samples. All samples are more or less close to average so we don't need to discard any samples.
 
 ```{r}
 {
   pdf(paste0("../", figures.dir,"number_detected_genes.pdf"), width = 10,  height = 8, compress = TRUE )
   par(mar=c(10,4,3,4))
-  barplot(colSums(counts_raw>3),ylab="Number of detected genes",las=2)
+  barplot(colSums(counts_raw>3),ylab="Number of detected genes",las=2) +
   abline(h=median(colSums(counts_raw>3)))
   dev.off()
 }
+barplot(colSums(counts_raw>3),ylab="Number of detected genes",las=2)+
+abline(h=median(colSums(counts_raw>3)))
+ 
 ```
 
-Removing reads with the log2 of the counts per million (cpm) lower than 1.
+Removing reads with the log2 of the counts per million (cpm) lower than 1 (45896 genes).
 
 ```{r}
-
-#Filter low counts
-keep_genes <- rowSums( counts_raw > 5 ) >= 8
-counts_filtered<- counts_raw[keep_genes,]
-sum(keep_genes)
-
+# Filter low count genes, cutoff: minimum of 5 reads in at least 8 samples
+# keep_genes <- rowSums(counts_raw > 5) >= 8
+# counts_filtered<- counts_raw[keep_genes,]
+# sum(keep_genes)
 
 meanLog2CPM <- rowMeans(log2(cpm(counts_raw) + 1)) 
 counts_filtered <- counts_raw[meanLog2CPM > 1, ] 
 
-
 ```
 
-Plot detection rate across genes for raw and filtered counts
+Plot genes detection rate across samples, comparing raw and filtered counts
 
 ```{r}
 {
@@ -198,6 +227,10 @@ Plot detection rate across genes for raw and filtered counts
   par(mfrow=c(1,1))
   dev.off()
 }
+
+hist(rowSums(counts_raw>3))
+hist(rowSums(counts_filtered>3))
+ 
 ```
 
 Plot distribution of the filtered counts
@@ -211,24 +244,34 @@ Plot distribution of the filtered counts
   par(mfrow=c(1,1))
   dev.off()
 }
+
+boxplot(log2(as.matrix(counts_filtered)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Filtered data")
+hist(log2(as.matrix(counts_filtered)+1),ylab="",las=2,main="Filtered data")
+  
 ```
 
-### DESeq object creation, Normalization and data Quality Control
+### DESeq object creation, Normalization and Quality Control
 
 Generating the DESeq dataset.
 
 ```{r}
 # prepare for DESeq
+# create new variable (conditions) based on previous infection, dose and time point
 sampleTable$conditions <- (str_c(sampleTable$group, "_", sampleTable$dose ))
+
+# create new variable (time)
+sampleTable$time <- sampleTable$conditions  
+sampleTable$time <- gsub('.{6}$', '', sampleTable$time)
+
+# factor variables
 sampleTable$conditions <- factor(sampleTable$conditions)
+sampleTable$time <- factor(sampleTable$time)
 sampleTable$sex <- factor(sampleTable$sex)
 sampleTable$dose <- factor(sampleTable$dose)
 sampleTable$group <- factor(sampleTable$group)
 
-sampleTable$time <- sampleTable$conditions  
-sampleTable$time <- gsub('.{6}$', '', sampleTable$time)
-sampleTable$time <- factor(sampleTable$time)
-# create 3 DESeq object
+
+# create 3 DESeq objects comparing against conditions, time and dose
 dds1 <- DESeqDataSetFromMatrix(countData = counts_filtered,
                               colData = as.data.frame(sampleTable),
                               design = ~  sex + age + conditions)
@@ -240,6 +283,7 @@ dds2 <- DESeqDataSetFromMatrix(countData = counts_filtered,
 dds3 <- DESeqDataSetFromMatrix(countData = counts_filtered,
                               colData = as.data.frame(sampleTable),
                               design = ~  sex + age + dose)
+
 # Normalize with rlog
 counts_rlog_normalized <- rlog(dds1, blind = TRUE)
 
@@ -250,7 +294,6 @@ counts_vst_normalized <- vst(dds1, blind = TRUE)
 Plot distribution of data after normalization
 
 ```{r}
-# haven't decided which plots to use
 vst_matrix <- assay(counts_vst_normalized) 
 rlog_matrix <- assay(counts_rlog_normalized)
 hist(vst_matrix)
@@ -303,13 +346,13 @@ pcaDF <- data.frame(
   PC1 = pcaRes$x[, 1],
   PC2 = pcaRes$x[, 2],
   Group = sampleTable$group,
-    Sample = sampleTable$sample_ID,
+  Sample = sampleTable$sample_ID,
   Dose = sampleTable$dose)
 
 { 
   pdf(paste0("../", figures.dir,"PCA.pdf"), width = 10,  height = 8, compress = TRUE )
   pcaPlot <- ggplot( pcaDF, mapping = aes(x = PC1, y = PC2, color = Group, label = Sample)) + 
-  geom_point(aes(shape = Dose), size = 3) +
+  geom_point(aes(shape = Group), size = 3) +
   labs(x = paste0("PC1 (", varExp[1], " %)"), y = paste0("PC2 (", varExp[2], " %)")) + 
   theme(axis.text = element_text(size = 12), legend.text = element_text(size = 10)) +
   scale_color_manual(values = brewer.pal(3, "Accent")) +
@@ -329,6 +372,8 @@ pca.var.per <- round(pca.var/sum(pca.var)*100, 1)
   par(mfrow=c(1,1))
   dev.off()
 }
+barplot(pca.var.per, main="Scree Plot", xlab="Principal Component", ylab="Percent Variation")
+
 ## exploring which variables contribute the most for each PC
 var <- get_pca_var(pcaRes)
 var$contrib %>%
@@ -352,29 +397,52 @@ resultsNames(dds1)
 resultsNames(dds2)
 resultsNames(dds3)
 
-# Results dds1
+# create function for makings comparisons with dds1 object
+compare_DEGs <- function(variable1, variable2) {
+  as.data.frame(results(dds1, contrast = c("conditions", variable1, variable2)))
+} 
 
 # Baselines DEGs
-res_baseline_pos_neg_dose1 <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_0_dose1", "Neg_0_dose1")))
-res_baseline_pos_neg_dose2 <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_0_dose2", "Neg_0_dose2")))
-res_baseline_pos_doses <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_0_dose2", "Pos_0_dose1")))
-res_baseline_neg_doses <- as.data.frame(results(dds1, contrast = c("conditions", "Neg_0_dose2", "Neg_0_dose1")))
-#add vaseline for Pos vs neg regardless of dose (theres is a difference here), and then regardles of statu (not here)
+base_pos_neg_d1 <- compare_DEGs("pos_0_dose1", "neg_0_dose1")
+base_pos_neg_d2 <- compare_DEGs("pos_0_dose2", "neg_0_dose2")
+base_pos_neg_d3 <- compare_DEGs("pos_0_dose3", "neg_0_dose3")
 
+base_pos_d1_d2 <- compare_DEGs("pos_0_dose2", "pos_0_dose1") 
+base_pos_d1_d3 <- compare_DEGs("pos_0_dose3", "pos_0_dose1") 
+base_pos_d2_d3 <- compare_DEGs("pos_0_dose2", "pos_0_dose3")
 
-# 0-24h Degs
-res_neg_dose1 <- as.data.frame(results(dds1, contrast = c("conditions", "Neg_24_dose1", "Neg_0_dose1")))
-res_pos_dose1 <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_24_dose1", "Pos_0_dose1")))
-res_neg_dose2 <- as.data.frame(results(dds1, contrast = c("conditions", "Neg_24_dose2", "Neg_0_dose2")))
-res_pos_dose2 <- as.data.frame(results(dds1, contrast = c("conditions", "Pos_24_dose2", "Pos_0_dose2")))
+base_neg_d1_d2 <- compare_DEGs("neg_0_dose2", "neg_0_dose1") 
+base_neg_d1_d3 <- compare_DEGs("neg_0_dose3", "neg_0_dose1")
+base_neg_d2_d3 <- compare_DEGs("neg_0_dose2", "neg_0_dose3")
 
+# 0-24h and 0-48 (3rd dose) DEGs
+neg_d1 <- compare_DEGs("neg_24_dose1", "neg_0_dose1")
+neg_d2 <- compare_DEGs("neg_24_dose2", "neg_0_dose2")
+neg_d3_24 <- compare_DEGs("neg_24_dose3", "neg_0_dose3")
+neg_d3_48 <- compare_DEGs("neg_48_dose3", "neg_0_dose3")
+
+pos_d1 <- compare_DEGs("pos_24_dose1", "pos_0_dose1")
+pos_d2 <- compare_DEGs("pos_24_dose2", "pos_0_dose2")
+pos_d3_24 <- compare_DEGs("pos_24_dose3", "pos_0_dose3")
+pos_d3_48 <- compare_DEGs("pos_48_dose3", "pos_0_dose3")
+
+# function for dds2 object
+compare_DEGs2 <- function(variable1, variable2) {
+  as.data.frame(results(dds2, contrast = c("time", variable1, variable2)))
+}
 # Results dds2
-res_pos <- as.data.frame(results(dds2, contrast = c("time", "Pos_24", "Pos_0")))
-res_neg <- as.data.frame(results(dds2, contrast = c("time", "Neg_24", "Neg_0")))
+pos <- compare_DEGs2("pos_24", "pos_0")
+neg <- compare_DEGs2("neg_24", "neg_0")
 
+# function for dds3
+compare_DEGs3 <- function(variable1, variable2) {
+  as.data.frame(results(dds3, contrast = c("dose", variable1, variable2)))
+}
 # Results dds3
-res_dose1 <- as.data.frame(results(dds3, contrast = c("dose", "24_dose1", "0_dose1")))
-res_dose2 <- as.data.frame(results(dds3, contrast = c("dose", "24_dose2", "0_dose2")))
+d1 <- compare_DEGs3("24_dose1", "0_dose1")
+d2 <- compare_DEGs3("24_dose2", "0_dose2")
+d3_24 <- compare_DEGs3("24_dose3", "0_dose3")
+d3_48 <- compare_DEGs3("48_dose3", "0_dose3")
 ```
 
 
@@ -385,14 +453,59 @@ Volcano plot for data exploratory analysis, filtering for significant values wit
 ```{r}
 # check only the negative fold change to see if there's a different pahtway of negative fold changes
 
-results_list <- list(res_baseline_pos_neg_dose1, res_baseline_pos_neg_dose2, res_baseline_pos_doses, res_baseline_neg_doses, res_neg_dose1, res_pos_dose1, res_neg_dose2, res_pos_dose2, res_pos, res_neg, res_dose1, res_dose2)
+result_list <- list(base_pos_neg_d1,
+                    base_pos_neg_d2,
+                    base_pos_neg_d3, 
+                    base_pos_d1_d2, 
+                    base_pos_d1_d3, 
+                    base_pos_d2_d3, 
+                    base_neg_d1_d2, 
+                    base_neg_d1_d3, 
+                    base_neg_d2_d3, 
+                    neg_d1,
+                    neg_d2, 
+                    neg_d3_24, 
+                    neg_d3_48, 
+                    pos_d1, 
+                    pos_d2, 
+                    pos_d3_24, 
+                    pos_d3_48, 
+                    pos, 
+                    neg, 
+                    d1, 
+                    d2, 
+                    d3_24, 
+                    d3_48)
+                     
+names(results_list) <- c("Baseline Dose 1", 
+                         "Baseline Dose 2", 
+                         "Baseline Dose 3", 
+                         "Baseline Conv Dose 1 and 2", 
+                         "Baseline Conv Dose 1 and 3", 
+                         "Baseline Conv Dose 2 and 3", 
+                         "Baseline Naïve Dose 1 and 2", 
+                         "Baseline Naïve Dose 1 and 3", 
+                         "Baseline Naïve Dose 2 and 3",
+                         "Naïve Dose 1", 
+                         "Naïve Dose 2", 
+                         "Naïve Dose 3 24 hours", 
+                         "Naïve Dose 3 48 hours", 
+                         "Conv Dose 1", 
+                         "Conv Dose 2", 
+                         "Conv Dose 3 24 hours", 
+                         "Conv Dose 3 48 hours", 
+                         "Conv",
+                         "Naïve", 
+                         "Dose 1", 
+                         "Dose 2",
+                         "Dose 3 24 hours",
+                         "Dose 3 48 hours") 
 
-names(results_list) <- c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", "Baseline Naïve", "Naïve Dose 1", "Conv Dose 1", "Naïve Dose 2", "Conv Dose 2", "Conv","Naïve", "Dose 1", "Dose 2") 
     results_list_plot <- lapply(results_list, function(x) {
   x <- x %>% mutate(test_padj = case_when(padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
                                      padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
                                      TRUE ~ "Not significant"),
-                    test_padj = case_when(pvalue < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
+                    test_pvalue = case_when(pvalue < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
                                      padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
                                      TRUE ~ "Not significant"),
                     )
@@ -400,7 +513,7 @@ names(results_list) <- c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", 
 # color by group dose1 and dose2, or neg and pos. 2 plots colored based on condition
 # color by group dose1 and dose2, or neg and pos. 2 plots colored based on condition
 # function to plot and save volcano plot
-.volcano_plot <-  function(x){
+volcano_plot <-  function(x){
   subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 2 & pvalue < 0.05)
   
   # count up regulated DEGs
@@ -412,11 +525,11 @@ names(results_list) <- c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", 
   
   results_list_plot[[x]] %>% 
   ggplot(aes(x=log2FoldChange,y=-log10(pvalue))) +
-  geom_point(aes(colour=test_pvalue), size=3, alpha=0.3) +
+  geom_point(aes(colour=test_padj), size=3, alpha=0.3) +
   scale_color_manual(values = c("Down regulated"="blue", "Not significant" ="grey80", "Up regulated"="red")) +
   xlab(expression("Fold Change (Log"[2]*")")) +
   ylab(expression("-Log"[10]*"(p-value)")) +
-  geom_vline(xintercept = c(-1, 1), linetype = "dotted", size = 1) + 
+  geom_vline(xintercept = c(-1), linetype = "dotted", size = 1) + 
   geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
   geom_label_repel(data = subsetted, aes(log2FoldChange,-log10(pvalue),label= gene_symbol), max.overlaps = 10) +
   xlim(-2,6) +
@@ -718,10 +831,10 @@ rpkm_plot <- rpkm_filtered %>%
   dplyr::rename(ID_time_dose = name) %>%
   full_join(sampleTable, by = "ID_time_dose") %>%
   mutate(conditions = factor(conditions, 
-                             levels = c("Neg_0_dose1", "Neg_24_dose1", 
-                                        "Neg_0_dose2", "Neg_24_dose2", 
-                                        "Pos_0_dose1", "Pos_24_dose1", 
-                                        "Pos_0_dose2", "Pos_24_dose2"),
+                             levels = c("neg_0_dose1", "Neg_24_dose1", 
+                                        "neg_0_dose2", "Neg_24_dose2", 
+                                        "pos_0_dose1", "Pos_24_dose1", 
+                                        "pos_0_dose2", "Pos_24_dose2"),
                              ordered = TRUE)) 
 
 rpkm_plot %>%
