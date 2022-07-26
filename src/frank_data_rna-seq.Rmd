@@ -152,14 +152,16 @@ names(res_list) <- c("muscle_LN", "muscle", "skin", "skin_LN")
 
 # Add color for up/down regulated genes with >/< 1 FC
 res_list <- lapply(res_list, function(x) {
-  x <- x %>% mutate(test = case_when(adj.P.Val < 0.05 & logFC >= 1 ~ "Up regulated",
+  x <- x %>% 
+    tibble::rownames_to_column("gene_symbols")%>%
+    mutate(test = case_when(adj.P.Val < 0.05 & logFC >= 1 ~ "Up regulated",
                                      adj.P.Val < 0.05 & logFC <= -1 ~ "Down regulated",
                                      TRUE ~ "Not significant"),
-                    )
+           gene_symbol = gene_symbols) %>%
+    tibble::column_to_rownames("gene_symbols") 
   })
 
 combined_res <- data.table::rbindlist(res_list, idcol = TRUE)
-
 ```
 ### Volcano plots
 ```{r volcano_plot}
@@ -176,6 +178,8 @@ combined_res %>%
   cowplot::theme_cowplot(line_size = 1.5, rel_small = 1.2, rel_tiny = 1,font_family = "Arial") +
   facet_wrap(~.id)
 
+combined_res %>%
+  filter(test == "Up regulated", grepl("^TNF$|^IL1B|^IL6", gene_symbol)) %>% View()
 ```
 ## Gene set enrichment analysis
 
@@ -209,6 +213,7 @@ list_gse <- lapply(ls_processed, function(x) GSEA(geneList=x,
 lapply(list_gse, ridgeplot)
 
 ```
+
 ```{r GSEA_heatmap}
 my_palette <- colorRampPalette(c("#265891", "white", "#B80F20"))(n = 20)
 combined_gsea <- data.table::rbindlist(lapply(list_gse, as.data.frame), idcol = TRUE) %>%
