@@ -370,11 +370,12 @@ results_list <- list(res_baseline_pos_neg_dose1, res_baseline_pos_neg_dose2, res
 names(results_list) <- c("Baseline Dose 1", "Baseline Dose 2", "Baseline Conv", "Baseline Naïve", "Naïve Dose 1", "Conv Dose 1", "Naïve Dose 2", "Conv Dose 2", "Conv","Naïve", "Dose 1", "Dose 2") 
 
 results_list_plot <- lapply(results_list, function(x) {
+
   x <- x %>% mutate(test_padj = case_when(padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
                                      padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
                                      TRUE ~ "Not significant"),
-                    test_pvalue = case_when(pvalue < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
-                                     pvalue < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
+                    test_padj = case_when(pvalue < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
+                                     padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
                                      TRUE ~ "Not significant"),
                     )
   })
