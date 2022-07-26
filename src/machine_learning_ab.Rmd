@@ -1,0 +1,738 @@
+---
+title: "Orebro RNA-seq machine learning approaches"
+author: "Rodrigo Arcoverde Cerveira & Gustav Joas"
+date: '`r format(Sys.Date(), "%Y-%m-%d")`'
+output: html_document
+abstract: Örebro study RNA-seq data analysis.
+knit: (function(inputFile, encoding) {
+          rmarkdown::render(inputFile,
+                            encoding = encoding, 
+                            output_file = paste0(
+                              xfun::sans_ext(inputFile), '_', Sys.Date(), '.html'),
+                                output_dir = "../results/lab_book/")})
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r global.options, include=FALSE}
+#setting up figures and chunks messages
+
+knitr::opts_knit$set(echo = TRUE,
+                     root.dir = getwd(),
+                     fig.width = 6, fig.height = 5,
+                     fig.align = "center",
+                     out.width = 768,
+                     fig.pos = "H",
+                     warning = FALSE, 
+                     message = FALSE)
+knitr::opts_chunk$set(warning = FALSE,
+                      message = FALSE,
+                      fig.width = 6, fig.height = 5,
+                     fig.align = "center",
+                     out.width = 768,
+                     fig.pos = "H")
+
+result.dir <- paste0("results/",Sys.Date(),"/")
+figures.dir <- paste0("results/",Sys.Date(),"/", "figures/")
+## creates result.dir with date in if not existent
+ifelse(isFALSE(dir.exists(paste0("../",result.dir))), dir.create(paste0("../",result.dir),recursive = TRUE),"Result directory for today exists already!")
+ifelse(isFALSE(dir.exists(paste0("../",figures.dir))), dir.create(paste0("../",figures.dir),recursive = TRUE),"Result directory for today exists already!")
+
+options(stringsAsFactors = FALSE) 
+```
+
+## Loading libraries
+
+```{r, message=FALSE}
+
+library(dplyr)
+library(RColorBrewer)
+library(EnsDb.Hsapiens.v86)
+library(ggplot2)
+library(clusterProfiler)
+library(DESeq2)
+library(caret)
+
+```
+
+
+## Download and load data
+
+```{r}
+# Reading data
+counts_raw <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>%  as.data.frame()
+
+sampleTable <- read.table("../data/metadata/sample_metadata.csv", sep = ",", header = TRUE) %>%
+  mutate(dose = as.factor(plyr::mapvalues(visit, from = c(1,2,4,5), to = c("0_dose1","24_dose1","0_dose2","24_dose2"))),
+         group = as.factor(group))
+
+# Remove incomplete sample
+sampleTable<-subset(sampleTable, sample_ID!="P22761_1037_S37")
+
+# Renaming genes based on emsembl annotation
+edb <- EnsDb.Hsapiens.v86
+edb_genes <- genes(edb) %>% as.data.frame()
+
+counts_raw <- counts_raw %>%
+  dplyr::select(-c(Chr, Start, End, Strand, Length)) %>%
+  dplyr::mutate(Geneid = plyr::mapvalues(x = counts_raw$Geneid, from = edb_genes$gene_id, to = edb_genes$symbol, warn_missing = FALSE))
+
+# Aggregate and sum up genes with same gene symbol, which were basically non-coding RNAs
+counts_raw <- aggregate(counts_raw[,-1], list(Geneid=counts_raw[,1]), FUN = sum)
+rownames(counts_raw) <- counts_raw$Geneid
+counts_raw <- dplyr::select(counts_raw, -c(Geneid))
+
+# Read antibody data
+
+antibody_data <- read.csv("../data/antibody_data/2022-04-26_antibody-binding-avidity.csv")
+
+# Load BTM modules
+gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
+
+# Load normalized transcripts per million
+
+```
+
+## Basic Quality Control
+
+### Inspect raw data
+
+Matching metadata to countTable and plotting the raw counts for first visual inspection.
+
+```{r}
+# Synchronize count data with sample table
+counts_raw <- counts_raw[, pmatch(sampleTable$sample_ID, colnames(counts_raw))]
+colnames(counts_raw) <- sampleTable$sample_ID
+all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
+```
+
+Removing reads with the log2 of the counts per million (cpm) lower than 1.
+
+```{r}
+
+#Filter low counts
+keep_genes <- rowSums( counts_raw > 5 ) >= 8
+counts_filtered<- counts_raw[keep_genes,]
+sum(keep_genes)
+
+
+#meanLog2CPM <- rowMeans(log2(cpm(counts_raw) + 1)) 
+#counts_filtered <- counts_raw[meanLog2CPM > 1, ] 
+
+```
+
+### DESeq object creation, Normalization and data Quality Control
+
+Generating the DESeq dataset.
+
+```{r}
+# prepare for DESeq
+sampleTable$conditions <- stringr::str_c(sampleTable$group, "_", sampleTable$dose )
+sampleTable$conditions <- factor(sampleTable$conditions)
+sampleTable$sex <- factor(sampleTable$sex)
+sampleTable$dose <- factor(sampleTable$dose)
+sampleTable$group <- factor(sampleTable$group)
+
+sampleTable$time <- sampleTable$conditions  
+sampleTable$time <- gsub('.{6}$', '', sampleTable$time)
+sampleTable$time <- factor(sampleTable$time)
+# create 3 DESeq object
+dds1 <- DESeqDataSetFromMatrix(countData = counts_filtered,
+                              colData = as.data.frame(sampleTable),
+                              design = ~  sex + age + conditions)
+
+# Normalize with variance stabilizing transformation for later PCA and heatmap
+counts_vst_normalized <- vst(dds1, blind = TRUE)
+```
+
+Plot distribution of data after variance-stabilization
+
+```{r}
+# haven't decided which plots to use
+vst_matrix <- assay(counts_vst_normalized)
+hist(vst_matrix)
+boxplot(vst_matrix ,ylab=expression('Log'[2]~'Read counts'),las=2,main="VST")
+
+
+```
+
+### Heatmap sample distance
+
+```{r}
+# Sample heatmap
+sampleDist <- cor(vst_matrix, method = "spearman") 
+
+Metadata <- data.frame(sampleTable$group, sampleTable$dose)
+names(Metadata) <- c("Group","Dose")
+rownames(Metadata) <- sampleTable$sample_ID
+
+# Plot heatmap
+colors<-colorRampPalette(rev(brewer.pal(n=7,name="RdBu")))(255)
+
+{
+  pdf(paste0("../", figures.dir,"heatmap.pdf"), width = 10,  height = 8, compress = TRUE )
+ Heatmap <-  pheatmap::pheatmap(sampleDist, 
+           color = colors,
+           clustering_distance_rows = as.dist(1 - sampleDist),
+           clustering_distance_cols = as.dist(1 - sampleDist), 
+           show_rownames = F,
+           show_colnames = F,
+           clustering_method = "ward.D2",
+           annotation_col = Metadata)
+  par(mfrow=c(1,1))
+  dev.off()
+}
+
+print(Heatmap)
+```
+
+
+```{r}
+# Run the DESeq2 analysis
+dds1 <-  estimateSizeFactors(dds1)
+
+edb_gene_length <- edb_genes %>%
+  mutate(gene_length = end - start) %>%
+  select(symbol, gene_length)
+counts_vst <- assay(vst(dds1, blind = FALSE))
+
+rpkm_filtered <- edgeR::rpkm(counts_vst, gene.length = edb_gene_length[edb_gene_length$symbol %in% rownames(counts_filtered),]$gene_length)
+
+rpkm_filtered <- rpkm_filtered[, pmatch(sampleTable$sample_ID, colnames(rpkm_filtered))]
+colnames(rpkm_filtered) <- sampleTable$sample_ID
+all(rownames(sampleTable$sample_ID) == colnames(rpkm_filtered))
+
+colnames(rpkm_filtered) <- plyr::mapvalues(colnames(rpkm_filtered), from = sampleTable$sample_ID, to = paste(sampleTable$subject_ID, sampleTable$dose,sep="_"))
+
+sampleTable <- sampleTable %>% mutate(ID_time_dose = paste(subject_ID, dose, sep = "_"))
+rownames(sampleTable) <- sampleTable$ID_time_dose
+
+```
+
+
+## Pick specific genes for plotting
+
+```{r plot_genes_of_interest}
+rpkm_plot <- rpkm_filtered %>% 
+  as.data.frame() %>%
+  tibble::rownames_to_column("gene_symbol") %>%
+  tidyr::pivot_longer(!gene_symbol, values_to = "RPKM") %>%
+  dplyr::rename(ID_time_dose = name) %>%
+  full_join(sampleTable, by = "ID_time_dose") %>%
+  mutate(conditions = factor(conditions, 
+                             levels = c("Neg_0_dose1", "Neg_24_dose1", 
+                                        "Neg_0_dose2", "Neg_24_dose2", 
+                                        "Pos_0_dose1", "Pos_24_dose1", 
+                                        "Pos_0_dose2", "Pos_24_dose2"),
+                             ordered = TRUE)) 
+```
+## Fold-change from normalized data
+
+```{r fold_change}
+set.seed(140)
+to_loop <- unique(sub( "_.*","",colnames(rpkm_filtered)))
+
+df <- list()
+for (column in to_loop){
+  print(column)
+  pattern_0_dose1 <- paste(column, "0_dose1",sep="_")
+  pattern_24_dose1 <- paste(column, "24_dose1",sep="_")
+  pattern_0_dose2 <- paste(column, "0_dose2",sep="_")
+  pattern_24_dose2 <- paste(column, "24_dose2",sep="_")
+  
+  if(column == "222-21"){
+     df[[column]] <- data.frame(genes = rownames(rpkm_filtered),
+                                FC_dose1 = rpkm_filtered[,pattern_24_dose1]/rpkm_filtered[,pattern_0_dose1],
+                                FC_dose2 = NA)
+  }else{
+     df[[column]] <- data.frame(genes = rownames(rpkm_filtered),
+                                FC_dose1 = rpkm_filtered[,pattern_24_dose1]/rpkm_filtered[,pattern_0_dose1],
+                                FC_dose2 = rpkm_filtered[,pattern_24_dose2]/rpkm_filtered[,pattern_0_dose2])
+  }
+}
+  
+fold_changes <- data.table::rbindlist(df, idcol = TRUE) %>%
+  dplyr::rename(sample_ID = .id) %>%
+  tidyr::pivot_wider(names_from = sample_ID,
+                     values_from = c(FC_dose1,FC_dose2)) %>%
+  as.data.frame()
+
+fold_changes <- data.frame(fold_changes, row.names = 1) %>%
+  select(-19) %>%
+  as.matrix()
+# Log normalization
+fold_changes <- log2(fold_changes)
+# Z-score normalization and centering
+fold_changes <- t(scale(t(fold_changes)))
+fold_changes <- fold_changes[!is.infinite(rowSums(fold_changes)),]
+fold_changes <- fold_changes[is.finite(rowSums(fold_changes)),]
+
+metadata_2 <- sampleTable %>%
+  mutate(heatmap_ID = paste0("FC", gsub("0|24","",dose),"_", gsub("-",".", subject_ID)),
+         dose = gsub("0|24|_","",dose)) %>%
+  select(heatmap_ID,group, dose) %>%
+  distinct()
+rownames(metadata_2) <- metadata_2$heatmap_ID
+
+```
+
+```{r plot_pca}
+#Sample PCA
+pca <- t(fold_changes)
+order_names <- rownames(pca) 
+pca <- FactoMineR::PCA(pca, graph = FALSE)
+metadata <- metadata_2[match(order_names, metadata_2$heatmap_ID),]
+
+
+factoextra::fviz_pca_ind(pca,axes.linetype = "dotted",
+             pointsize = 5,
+             habillage = as.factor(metadata$group),
+             palette = "npg",
+             label = metadata$heatmap_ID,
+             invisible="quali") +
+  labs(title = "") +
+  theme_minimal()+
+  theme(axis.title = element_text(size = 20, face = "bold"),
+        axis.text = element_text(size = 16, face = "bold", color = "black"),
+        panel.grid = element_line("white"),
+        axis.ticks = element_line(size = 1),
+        axis.line = element_line(color = "black", size = 1)) 
+
+
+## Plot how much each dimension explains
+factoextra::fviz_eig(pca, addlabels = TRUE, choice = "variance", geom = "line", ncp = 20) + ylim(c(0,10))
+
+factoextra::fviz_cos2(pca, choice = "ind", axes = 1:2)
+
+## Explore which variables contribute the most for each PC
+top_1000 <- factoextra::fviz_contrib(pca, choice = "var", axes = c(1:5), top = 9000) + theme(axis.text.x = element_blank())
+top_1000 <- top_1000[["data"]] %>% arrange(desc(contrib)) %>% slice(1:9000)
+
+```
+
+
+
+## Machine learning
+
+### Regularized linear regression
+```{r linear_regression}
+
+# Generate new metadata containing subject ID and group only
+metadata_3 <- metadata_2 %>%
+  mutate(subject_ID = gsub(".*_","",heatmap_ID)) %>%
+  tibble::rownames_to_column("samples") %>%
+  select(subject_ID, group) %>%
+  distinct()
+
+variable_to_predict <- "Spike_W6"
+if(grepl("Avidity",variable_to_predict)){
+  antibody_data_to_merge <- antibody_data %>%
+  select(sample_ID, all_of(variable_to_predict), prior_COVID.19)
+  print("Avidity data detected, raw perentage valued used")
+}else{
+  antibody_data_to_merge <- antibody_data
+  antibody_data_to_merge[[variable_to_predict]] <- log10(antibody_data[[variable_to_predict]])
+  antibody_data_to_merge <- antibody_data_to_merge %>%
+  select(sample_ID, variable_to_predict, prior_COVID.19)
+  print("Not avidity data, assuming it is antibody titer, thus the data is log10 normalized")
+}
+
+#btm_genes_names <- btm_modules %>% pull(`Module member genes`) %>% stringr::str_split(",") %>% unlist()
+#btm_genes_names <- paste(btm_genes_names,collapse = "|")
+
+fold_changes_ab_data <- fold_changes %>% 
+  t() %>%
+  as.data.frame() %>%
+  # Select only the top variables that contribute to the first dimensions
+  select_if(colnames(.) %in% top_1000$name) %>%
+  # Select only the genes from MO and IFN gene set modules
+  #select_if(grepl(btm_genes_names,colnames(.))) %>%
+  tibble::rownames_to_column("sample_ID") %>%
+  tidyr::separate(sample_ID, into = c("X","dose", "subject_ID"), sep = "_") %>%
+  tidyr::pivot_wider(names_from = "dose", values_from = c(everything(), -"subject_ID", -"X", -"dose")) %>%
+  left_join(metadata_3,by = "subject_ID") %>%
+  mutate(sample_ID = gsub("\\.","-",subject_ID)) %>%
+  left_join(antibody_data_to_merge, by="sample_ID") %>%
+  select(-X) %>%
+  mutate(avidity_classes = cut(.[[variable_to_predict]], 2, labels=FALSE),
+         avidity_classes = paste0("class", avidity_classes)) %>%
+  relocate(c("sample_ID","subject_ID","group",variable_to_predict,"avidity_classes")) 
+
+data.table::fwrite(fold_changes_ab_data, "../data/machine_learning_dataset/fold_changes_RPKMs.csv", row.names = F, sep = ",",nThread = 8)
+# Test RPKM without being a ratio or normalized - not optimal and did not improve prediction
+#fold_changes_ab_data <- rpkm_filtered %>% 
+#  as.data.frame() %>%
+#  select_if(grepl(pattern = "24_dose1",colnames(.))) %>% t() %>% as.data.frame() %>%
+# # select_if(colnames(.) %in% top_1000$name) %>%
+#  tibble::rownames_to_column("sample_ID") %>%
+#  tidyr::separate(sample_ID, into = c("sample_ID"), sep = "_") %>%
+#  left_join(antibody_data_to_merge, by="sample_ID") %>%
+#  mutate(avidity_classes = cut(.[[variable_to_predict]], 2, labels=FALSE),
+#         avidity_classes = paste0("class", avidity_classes)) %>%
+#  relocate(c("sample_ID","sample_ID","prior_COVID.19",variable_to_predict,"avidity_classes")) 
+
+
+#fold_changes_ab_data <- fold_changes_ab_data[complete.cases(fold_changes_ab_data),]
+df <- list()
+for(doses in c("_dose1", "_dose2")){
+  vector_sel <- c("sample_ID","subject_ID","group",variable_to_predict,"avidity_classes",grep(doses, colnames(fold_changes_ab_data), value = TRUE))
+  fold_changes_ab_data_dt <- data.table::as.data.table(fold_changes_ab_data)[,..vector_sel]
+  
+  fold_changes_ab_data_dt <- na.omit(fold_changes_ab_data_dt)
+  pca <- fold_changes_ab_data_dt[,-c(1:5)]
+  order_names <- rownames(pca) 
+  pca <- FactoMineR::PCA(pca, graph = FALSE)
+  factoextra::fviz_pca_ind(pca ,axes.linetype = "dotted",
+             pointsize = 4,
+             habillage = fold_changes_ab_data_dt$group)
+  
+  # Create training set and testing dataset
+  set.seed(140)
+  trainIndex <- createDataPartition(seq_len(nrow(fold_changes_ab_data_dt)), p = .8,
+                                    list = FALSE,
+                                    times = 1)
+    if(doses == "_dose1"){
+      print("Select training data for dose 1")
+    trainIndex <- c(1,2,3,4,6,7,8,10)
+    }else{
+      print("Select training data for dose 2, thus removing incomplete samples")
+      trainIndex <- c(1,2,3,4,6,7,8)
+    }
+  trainingSet <- as.data.frame(fold_changes_ab_data_dt[ trainIndex,])
+  testingSet <- as.data.frame(fold_changes_ab_data_dt[-trainIndex,])
+  
+  # Run model
+  cvfit <- glmnet::cv.glmnet(y=data.matrix(trainingSet[[variable_to_predict]]), x=data.matrix(trainingSet[-c(1:5)]), nfolds=nrow(trainingSet), parallel = TRUE, nlambda = 100, alpha = 0)
+  
+  plot(cvfit)
+  lambda.opt <- cvfit$lambda.min
+  {fitB <- cvfit$glmnet.fit
+  plot(fitB, xvar="lambda")
+  abline(v=log(lambda.opt))}
+  
+  assess.glmnet(fitB,
+                newy=testingSet[[variable_to_predict]], 
+                newx=data.matrix(testingSet[-c(1:5)]))
+  
+  glmnet::predict.glmnet(fitB, newx=data.matrix(testingSet[-c(1:5)]), s = lambda.opt) 
+  
+  genes_coef[[doses]] <- data.frame(genes = rownames(coef(fitB, s=lambda.opt) )[coef(fitB, s=lambda.opt) [,1] != 0],
+             coef = coef(fitB, s=lambda.opt)[coef(fitB, s=lambda.opt) [,1] != 0])
+  
+  genes_coef[[doses]]   
+  {
+  df[[doses]] <- data.frame(predicted = glmnet::predict.glmnet(fitB, newx=data.matrix(fold_changes_ab_data_dt[,-c(1:5)]), s = lambda.opt)[,1],
+           true_value = fold_changes_ab_data_dt[[variable_to_predict]],
+           subject_ID = fold_changes_ab_data_dt$subject_ID) %>%
+  mutate(dataset = ifelse(subject_ID %in% trainingSet$subject_ID, "Train data", "Test data")) 
+    
+  print(ggplot(df[[doses]],aes(x = true_value, y = predicted, color = dataset)) + geom_point(size = 3) + 
+  labs(x = "True value\n(Log10)", y = "Predicted value \n (Log10)", dataset = "Dataset") +
+  #xlim(c(0,100)) +
+  #ylim(c(0,100)) +
+  theme_bw() +
+  ggsci::scale_color_npg() +
+    labs(color = "") + 
+  theme(text = element_text(size = 20)))
+  
+  ggsave(paste0("../",result.dir,"regression_prediction",doses,".pdf"),
+         width = 6,height = 4, dpi = 300)
+  dev.off()
+  }
+}
+
+```
+
+## GSEA ordered by greater predictors
+
+```{r}
+
+library(org.Hs.eg.db)
+
+genes_coef_gsea <- genes_coef[["_dose1"]][["coef"]]
+names(genes_coef_gsea) <- gsub("_dose[1,2]", "", genes_coef[["_dose1"]][["genes"]])
+genes_coef_gsea <- sort(genes_coef_gsea, decreasing = TRUE)
+gse_gmt <- GSEA(geneList=genes_coef_gsea, 
+            TERM2GENE = gmt,
+             minGSSize = 10, 
+             maxGSSize = 500, 
+            nPermSimple = 10000,
+             verbose = TRUE, 
+             pAdjustMethod = "none")
+
+ridgeplot(gse_gmt, fill = "NES")
+ ggsave(paste0("../",result.dir,"dose1_gsea_coef_regression.pdf"),
+         width = 9,height = 4, dpi = 300)
+# No term enriched
+
+gse_go <- gseGO(genes_coef_gsea, OrgDb = org.Hs.eg.db, ont = "ALL", keyType = "SYMBOL", pAdjustMethod = "none")
+gse_go@result %>%
+  group_by(ONTOLOGY) %>%
+  arrange(desc(NES), .by_group = TRUE) %>% slice_head(n = 10) %>%
+  ungroup() %>%
+  ggplot(aes(x = NES, y = Description, fill= ONTOLOGY)) +
+  geom_col()+
+  theme_bw()+
+  scale_fill_viridis_d(option = "E") +
+    facet_wrap(~ONTOLOGY, nrow = 3, scales = "free_y")
+ridgeplot(gse_go, fill = "NES")
+
+
+#enrichGO(names(genes_coef_gsea), OrgDb = org.Hs.eg.db,ont = "ALL", keyType = "SYMBOL")
+#dotplot(gse_gmt)
+#ridgeplot(gse_gmt, fill = "NES")
+
+
+
+```
+
+###
+
+```{r correlation}
+btm_modules <- readxl::read_xls("../data/blood_transcription_module/btm_annotation_table.xls") %>% filter(grepl(pattern = "M11.0|M127", x = ID))
+
+M11_genes <- btm_modules %>% filter( ID == "M11.0") %>% pull(`Module member genes`) %>% stringr::str_split(",") %>% unlist()
+
+
+colnames(fold_changes_ab_data_dt) <- gsub("_dose1", "",colnames(fold_changes_ab_data_dt))
+
+FC_to_corr <- fold_changes_ab_data_dt %>% as.data.frame() %>%
+  select_if(colnames(fold_changes_ab_data_dt) %in% c("group","subject_ID","Spike_Avidity_W6",M11_genes)) %>%
+  as.data.frame() 
+
+correlations <- psych::corr.test(y = FC_to_corr[,"Spike_Avidity_W6"], x =  FC_to_corr[,-c(1:3)])
+
+p_correlations <- correlations$r %>% as.data.frame() %>% tibble::rownames_to_column("genes") %>%
+  filter(abs(V1) > .6)
+
+
+fold_changes_ab_data_dt %>%
+  select_if(colnames(.) %in% c("group","subject_ID","Spike_Avidity_W6",p_correlations$genes)) %>%
+  tidyr::pivot_longer(cols =  c(colnames(.), -"group",-"subject_ID",-"Spike_Avidity_W6" ), values_to = "FC_log2", names_to = "genes") %>% 
+ggplot(aes(x = FC_log2, y = Spike_Avidity_W6)) +
+  geom_point(aes(color = group)) +
+  geom_smooth(method = "glm") +
+  ggpubr::stat_cor(method = "spearman")+
+  scale_y_log10() +
+  theme_bw() +
+  facet_wrap(~genes, ncol = 4)
+
+
+```
+
+### Random forest
+
+```{r}
+#New filter function
+rfSBF$filter <- function(score, x, y){
+top100 <- order(score, decreasing = TRUE)[1:100] 
+names(score) %in% names(score)[top100]
+}
+
+rfSBF$score <- function(x, y){ 
+  loadNamespace("pROC") 
+  pROC::auc(pROC::roc(y, x, quiet = TRUE))[1]
+}
+```
+
+Decision tree analysis using the `C50` package with Leave-one-out cross-validation (LOOCV).
+
+```{r}
+
+# Select variables for training
+levels_classification <- factor(trainingSet$avidity_classes, levels = c("class1", "class2"), ordered = TRUE)
+training_data <- data.frame(trainingSet[,-c(1:5)])
+
+cofVar <- apply(training_data, 2, sd) / apply(training_data, 2, mean)
+#training_data <- training_data[cofVar > quantile(cofVar, 0.9) | cofVar < quantile(cofVar, 0.1)] 
+
+set.seed(140)
+cl <- makePSOCKcluster(8)
+doParallel::registerDoParallel(cl)
+RFwithFilter <- sbf(training_data, levels_classification,ntree = 10000,
+                 sbfControl = sbfControl(functions = rfSBF,
+                                         verbose = FALSE,
+                                         method = "loocv"
+                                         ))
+stopCluster(cl)
+RFwithFilter
+varImp(RFwithFilter)
+
+# Stop processing by parallel if still running on the background
+unregister_dopar <- function() {
+  env <- foreach:::.foreachGlobals
+  rm(list=ls(name=env), pos=env)
+}
+unregister_dopar()
+# Show model
+summary(RFwithFilter$fit)
+
+
+## second trial
+
+fitControl <- trainControl(method = "loocv")
+training_data$class <- levels_classification
+rfFit <- train(class ~., data = training_data, 
+                 method = "parRF", 
+                 trControl = fitControl,
+                 verbose = FALSE,
+                 ntree = 10000,
+                 importance = TRUE)
+
+```
+
+### Model validation
+
+```{r}
+# Function to plot confusion matrix
+draw_confusion_matrix <- function(cm) {
+  layout(matrix(c(1,1,2)))
+  par(mar=c(2,2,2,2))
+  plot(c(100, 345), c(300, 450), type = "n", xlab="", ylab="", xaxt='n', yaxt='n')
+  title('CONFUSION MATRIX', cex.main=2)
+
+  # create the matrix 
+  rect(150, 430, 240, 370, col='#3F97D0')
+  text(195, 435, 'Class1', cex=1.2)
+  rect(250, 430, 340, 370, col='#F7AD50')
+  text(295, 435, 'Class2', cex=1.2)
+  text(125, 370, 'Predicted', cex=1.3, srt=90, font=2)
+  text(245, 450, 'Actual', cex=1.3, font=2)
+  rect(150, 305, 240, 365, col='#F7AD50')
+  rect(250, 305, 340, 365, col='#3F97D0')
+  text(140, 400, 'Class1', cex=1.2, srt=90)
+  text(140, 335, 'Class2', cex=1.2, srt=90)
+
+  # add in the cm results 
+  res <- as.numeric(cm$table)
+  text(195, 400, res[1], cex=1.6, font=2, col='white')
+  text(195, 335, res[2], cex=1.6, font=2, col='white')
+  text(295, 400, res[3], cex=1.6, font=2, col='white')
+  text(295, 335, res[4], cex=1.6, font=2, col='white')
+
+  # add in the specifics 
+  plot(c(100, 0), c(100, 0), type = "n", xlab="", ylab="", main = "DETAILS", xaxt='n', yaxt='n')
+  text(10, 85, names(cm$byClass[1]), cex=1.2, font=2)
+  text(10, 70, round(as.numeric(cm$byClass[1]), 3), cex=1.2)
+  text(30, 85, names(cm$byClass[2]), cex=1.2, font=2)
+  text(30, 70, round(as.numeric(cm$byClass[2]), 3), cex=1.2)
+  text(50, 85, names(cm$byClass[5]), cex=1.2, font=2)
+  text(50, 70, round(as.numeric(cm$byClass[5]), 3), cex=1.2)
+  text(70, 85, names(cm$byClass[6]), cex=1.2, font=2)
+  text(70, 70, round(as.numeric(cm$byClass[6]), 3), cex=1.2)
+  text(90, 85, names(cm$byClass[7]), cex=1.2, font=2)
+  text(90, 70, round(as.numeric(cm$byClass[7]), 3), cex=1.2)
+
+  # add in the accuracy information 
+  text(30, 35, names(cm$overall[1]), cex=1.5, font=2)
+  text(30, 20, round(as.numeric(cm$overall[1]), 3), cex=1.4)
+  text(70, 35, names(cm$overall[2]), cex=1.5, font=2)
+  text(70, 20, round(as.numeric(cm$overall[2]), 3), cex=1.4)
+}  
+
+
+```
+
+### Plotting number of trees from random forest and estimated errors
+
+```{r}
+RFfit <- randomForest::randomForest(x = na.omit(trainingSet[,-c(1:5)]), y = na.omit(trainingSet)[[4]], ntree = 5000,importance = TRUE, mtry = 200)
+plot(RFfit)
+
+data.frame(predicted = predict(RFfit, newdata = fold_changes_ab_data_dt[,-c(1:5)]),
+           true_value = na.omit(fold_changes_ab_data_dt)$Spike_Avidity_W6,
+           subject_ID = na.omit(fold_changes_ab_data_dt)$subject_ID) %>%
+  mutate(dataset = ifelse(subject_ID %in% trainingSet$subject_ID, "Train data", "Test data")) %>%
+  ggplot(aes(x = true_value, y = predicted, color = dataset)) + geom_jitter() + 
+  labs(x = "True value", y = "Predicted value", dataset = "Dataset") +
+  xlim(c(0,100)) +
+  ylim(c(0,100)) +
+  theme_bw()
+
+
+#plot(RFwithFilter$fit, main = "Number of trees and error rates")
+
+
+genes_coef_gsea <- varImp(RFfit)[[1]]
+names(genes_coef_gsea) <- gsub("_dose[1,2]", "", rownames(varImp(RFfit)))
+genes_coef_gsea <- sort(genes_coef_gsea, decreasing = TRUE)
+gse_gmt <- GSEA(geneList=genes_coef_gsea, 
+            TERM2GENE = gmt,
+             minGSSize = 3, 
+             maxGSSize = 800, 
+            nPermSimple = 10000,
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             pAdjustMethod = "fdr")
+
+ridgeplot(gse_gmt)
+
+```
+
+### Model validation (random forest)
+
+```{r}
+cm <- confusionMatrix(RFwithFilter$pred$predictions$pred, levels_classification)
+
+{
+
+ draw_confusion_matrix(cm)
+
+}
+```
+
+## Merging proteomics with mRNA data
+
+```{r}
+protein <- antibody_data[,c(1,31:(length(antibody_data)-3))]
+protein <- protein %>% tidyr::drop_na() %>%
+  filter(sample_ID != "222-16") %>%
+  janitor::remove_empty(which = c("rows", "cols")) %>%
+  janitor::remove_constant() %>%
+  mutate(across(.fns = ~gsub(" ", "",(.)))) %>%
+  mutate(across(.cols = -sample_ID, ~as.numeric(.)))
+
+cor_results <- list()
+for(doses in c("_dose1", "_dose2")){
+  vector_sel <- c("sample_ID","subject_ID","group",variable_to_predict,"avidity_classes",grep(doses, colnames(fold_changes_ab_data), value = TRUE))
+  
+  fold_changes_ab_data_dt <- data.table::as.data.table(fold_changes_ab_data)[,..vector_sel] %>% as.data.frame()
+  
+  protein <- protein[na.omit(pmatch(fold_changes_ab_data_dt$sample_ID,protein$sample_ID)) ,] %>% janitor::remove_constant()
+  
+   rownames(protein) <- protein$sample_ID
+   rownames(fold_changes_ab_data_dt) <- fold_changes_ab_data_dt$sample_ID
+     
+  if(all(rownames(protein) != rownames(fold_changes_ab_data_dt))){
+    print("Rownames of samples are not in the correct order!")
+  }
+   
+   for(groups in fold_changes_ab_data_dt$group){
+    
+     protein_group <- protein[which(fold_changes_ab_data_dt$group == groups),]
+    
+    fc_df_group <- fold_changes_ab_data_dt[fold_changes_ab_data_dt$group == groups,]
+    
+     cor_results[[doses]][[groups]] <- psych::corr.test(x = fc_df_group[,-c(1:5)], y = protein_group[,-1],adjust = "fdr", ci = FALSE)
+   }
+}
+
+```
+
+### Network analysis
+
+```{r network}
+cor_res_neg_1 <- as.data.frame(cor_results[["_dose1"]][["Neg"]][["r"]]) %>%
+  filter_all(any_vars())
+cor_res_pos_1 <- as.data.frame(cor_results[["_dose1"]][["Pos"]][["r"]])
+cor_res_neg_2 <- as.data.frame(cor_results[["_dose2"]][["Neg"]][["r"]])
+cor_res_pos_2 <- as.data.frame(cor_results[["_dose2"]][["Pos"]][["r"]])
+cor_r_res <- list(cor_res_neg_1, cor_res_pos_1, cor_res_neg_2, cor_res_pos_2)
+names(cor_r_res) <- as.character("cor_res_neg_1", "cor_res_pos_1", "cor_res_neg_2", "cor_res_pos_2")
+
+```
+### Session info
+
+```{r}
+sessionInfo()
+```
