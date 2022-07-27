@@ -448,12 +448,12 @@ d3_48 <- compare_DEGs3("48_dose3", "0_dose3")
 
 ### Volcano plots
 
-Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate \< 0.05 and log fold change greater than 1.
+Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
 
 ```{r}
 # check only the negative fold change to see if there's a different pahtway of negative fold changes
 
-result_list <- list(base_pos_neg_d1,
+results_list <- list(base_pos_neg_d1,
                     base_pos_neg_d2,
                     base_pos_neg_d3, 
                     base_pos_d1_d2, 
@@ -477,29 +477,29 @@ result_list <- list(base_pos_neg_d1,
                     d3_24, 
                     d3_48)
                      
-names(results_list) <- c("Baseline Dose 1", 
-                         "Baseline Dose 2", 
-                         "Baseline Dose 3", 
+names(results_list) <- c("Baseline Dose 1 Conv vs Naïve", 
+                         "Baseline Dose 2 Conv vs Naïve", 
+                         "Baseline Dose 3 Conv vs Naïve", 
                          "Baseline Conv Dose 1 and 2", 
                          "Baseline Conv Dose 1 and 3", 
                          "Baseline Conv Dose 2 and 3", 
                          "Baseline Naïve Dose 1 and 2", 
                          "Baseline Naïve Dose 1 and 3", 
                          "Baseline Naïve Dose 2 and 3",
-                         "Naïve Dose 1", 
-                         "Naïve Dose 2", 
-                         "Naïve Dose 3 24 hours", 
-                         "Naïve Dose 3 48 hours", 
-                         "Conv Dose 1", 
-                         "Conv Dose 2", 
-                         "Conv Dose 3 24 hours", 
-                         "Conv Dose 3 48 hours", 
-                         "Conv",
-                         "Naïve", 
-                         "Dose 1", 
-                         "Dose 2",
-                         "Dose 3 24 hours",
-                         "Dose 3 48 hours") 
+                         "Naïve Dose 1 0-24 hours", 
+                         "Naïve Dose 2 0-24 hours", 
+                         "Naïve Dose 3 0-24 hours", 
+                         "Naïve Dose 3 0-48 hours", 
+                         "Conv Dose 1 0-24 hours", 
+                         "Conv Dose 2 0-24 hours", 
+                         "Conv Dose 3 0-24 hours", 
+                         "Conv Dose 3 0-48 hours", 
+                         "Conv 0-24 hours",
+                         "Naïve 0-24 hours", 
+                         "Dose 1 0-24 hours", 
+                         "Dose 2 0-24 hours",
+                         "Dose 3 0-24 hours",
+                         "Dose 3 0-48 hours") 
 
     results_list_plot <- lapply(results_list, function(x) {
   x <- x %>% mutate(test_padj = case_when(padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
@@ -510,8 +510,7 @@ names(results_list) <- c("Baseline Dose 1",
                                      TRUE ~ "Not significant"),
                     )
   })
-# color by group dose1 and dose2, or neg and pos. 2 plots colored based on condition
-# color by group dose1 and dose2, or neg and pos. 2 plots colored based on condition
+    
 # function to plot and save volcano plot
 volcano_plot <-  function(x){
   subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 2 & pvalue < 0.05)
@@ -529,12 +528,14 @@ volcano_plot <-  function(x){
   scale_color_manual(values = c("Down regulated"="blue", "Not significant" ="grey80", "Up regulated"="red")) +
   xlab(expression("Fold Change (Log"[2]*")")) +
   ylab(expression("-Log"[10]*"(p-value)")) +
+  labs(x = NULL, y = NULL) +
   geom_vline(xintercept = c(-1), linetype = "dotted", size = 1) + 
+  geom_vline(xintercept = c(1), linetype = "dotted", size = 1) + 
   geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
   geom_label_repel(data = subsetted, aes(log2FoldChange,-log10(pvalue),label= gene_symbol), max.overlaps = 10) +
   xlim(-2,6) +
   ylim(0,10) +
- # ggtitle(x) +  
+  ggtitle(x) +  
   annotate(
         geom='text',
         colour = "red",
@@ -551,23 +552,22 @@ volcano_plot <-  function(x){
         hjust=0,
         label=paste0(deg_number_down)
     ) +
-  cowplot::theme_cowplot(font_size = 20, line_size = 1.5, rel_small = 1.6, rel_tiny = 1,font_family = "Arial",rel_large = 4) +
-  theme(legend.position = 'none',
-        axis.title = element_text(size = 35))
+  cowplot::theme_cowplot(font_size = 6, 
+                         line_size = 1.5, 
+                         rel_small = 1.6, 
+                         rel_tiny = 1,
+                         font_family = "Arial",
+                         rel_large = 4) +
+  theme(legend.position = 'none', axis.title = element_text(size = 35), axis.text = element_text(size = 20))
   }
 
-volcano_plots <- lapply(names(results_list_plot), .volcano_plot)
+volcano_plots <- lapply(names(results_list_plot), volcano_plot)
 names(volcano_plots) <- names(results_list_plot)
 volcano_plots
 
 lapply(names(volcano_plots), function(x) ggsave(filename = paste0("../", figures.dir, x,"_volcano_plot.png"), width = 7, height = 7,
                                          plot = volcano_plots[[x]]))
-
-
-
-
 ```
-
 
 ```{r}
 
@@ -591,6 +591,7 @@ enrichment_list_up <- lapply(results_list_plot, function(x) {
   genes = rownames(x[x$test_padj == "Up regulated", ]),
   databases = c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021"))})
 
+
 enrichment_list_down <- lapply(results_list_plot, function(x) {
   enrichr(
   genes = rownames(x[x$test_padj == "Down regulated", ]),
@@ -602,17 +603,19 @@ gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
 
 #### Visualize enriched pathways
 
-```{r echo=TRUE, fig.width=15, fig.height=8}
+```{r echo=TRUE, fig.width = 15, fig.height = 8}
+# Removing items without significant results from list
+enrichment_list_up[sapply(enrichment_list_up, is.null)] <- NULL
+enrichment_list_down[sapply(enrichment_list_down, is.null)] <- NULL
 
-#Removing items without significant results from list
-enrichment_list_up[c("neg_dose1")] <- NULL
-enrichment_list_down[c("baseline", "neg_dose1", "pos_dose1", "neg", "dose1")] <- NULL
+# Optional: remove all comparisons except naive vs conv at each timepoint
+  # enrichment_list_up <- enrichment_list_up[3:9]
+  # enrichment_list_down <- enrichment_list_down[3:6]
 
-#Visualize significant terms
-enrichment_list <- enrichment_list_up
-
-plots_enrich <- list()
-for(pathway in 1:length(enrichment_list_up[[1]])){
+# Function for plotting over-representation analysis
+plot_enrichment <- function(enrichment_list){
+ plots_enrich <- list()
+for(pathway in 1:length(enrichment_list[[1]])){
   
   rbinded_enrich_list <- lapply(enrichment_list, function(x)x[[pathway]])
   print(names(enrichment_list[[1]])[[pathway]])
@@ -622,10 +625,8 @@ for(pathway in 1:length(enrichment_list_up[[1]])){
   group_by(.id) %>%
   arrange(Adjusted.P.value) %>%
   slice(1:10) 
-  
-}
-
-lapply(plots_enrich, function(x){
+  }
+plots <- lapply(plots_enrich, function(x){
   x %>%
   ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
     geom_bar(stat = "identity", width = 0.05) + geom_point(size = 3) +
@@ -637,10 +638,38 @@ lapply(plots_enrich, function(x){
     coord_flip() +
     geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") + 
     theme_bw() +
-    labs(y = expression("Adjusted P value, Log"[10]*"")) +
-  facet_wrap(~.id)
-})
+    labs(x = NULL, y = expression("Adjusted P value, Log"[10]*"")) +
+  facet_wrap(~.id, ncol = 4)
+  })
+  return(plots)
+}
 
+# Plotting over-representation analyssi
+enrichment_plot_up <- plot_enrichment(enrichment_list_up)
+enrichment_plot_down <- plot_enrichment(enrichment_list_down)
+
+names(enrichment_plot_up) <- c("GO_Biological_Process_2021_up",
+                            "KEGG_2021_Human_up",
+                            "GO_Molecular_Function_2021_up") 
+
+names(enrichment_plot_down) <- c("GO_Biological_Process_2021_down",
+                            "KEGG_2021_Human_down",
+                            "GO_Molecular_Function_2021_down") 
+print(enrichment_plot_up)
+print(enrichment_plot_down)
+ 
+
+# function for saving op plots
+save_op_plots <- function(ea_plot_list){
+  lapply(names(ea_plot_list), function(x) 
+     ggsave(filename = paste0("../", figures.dir, x,"_EA.png"), 
+            height = 24, width = 16, 
+            plot = ea_plot_list[[x]]))
+}
+
+# saving enrichment plots to figure folder
+save_op_plots(enrichment_plot_up)
+save_op_plots(enrichment_plot_down)
 
 ```
 
@@ -688,15 +717,38 @@ list_gse <- lapply(ls_processed, function(x) GSEA(geneList=x,
 #### Ridgeplot
 Helpful to interpret up/down-regulated pathways.
 ```{r fig.width=18, fig.height=12}
-# change coloring for up and downregulated
 # try also to plot as a heatmap for all the group comparisons
 
-rigdgeplots_list <- lapply(list_gse, ridgeplot)
-lapply(names(rigdgeplots_list), function(x) ggsave(filename = paste0("../", figures.dir, x,"_BTM_plot.pdf"), 
-                                         plot = rigdgeplots_list[[x]], width = 15, height = 10))
-rigdgeplots_list
+ridgeplotting <- function(x){
+  list_gse[[x]] %>%
+    ridgeplot(fill = "enrichmentScore") +
+    viridis::scale_fill_viridis(option = "turbo") +
+    ggtitle(x) +
+    cowplot::theme_cowplot(font_size = 6, 
+                         line_size = 1.5, 
+                         rel_small = 1.6, 
+                         rel_tiny = 1,
+                         font_family = "Arial",
+                         rel_large = 4) +
+  theme(legend.position = 'right',
+        legend.direction = 'vertical',
+        legend.key.size = unit(1, 'cm'),
+        legend.title = element_text(size = 16, face = "bold", family = "Arial"),
+        legend.text = element_text(size = 14),
+        axis.title = element_text(size = 35), 
+        axis.text.x  = element_text(size = 16),
+        axis.text.y =  element_text(size = 16)) +
+  scale_y_discrete()
+}
 
+ridgeplots <- lapply(names(list_gse), ridgeplotting)
+names(ridgeplots) <- names(list_gse)
+print(ridgeplots)
+
+lapply(names(ridgeplots), function(x) ggsave(filename = paste0("../", figures.dir, x,"_BTM_plot.png"), 
+                                         plot = ridgeplots[[x]], width = 16, height = 12))
 ```
+
 
 #### Dotplot
 ```{r echo=TRUE, fig.width=15, fig.height=8}
