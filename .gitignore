@@ -1,8 +1,8 @@
 /results/*
 !/results/lab_notebook
 /doc/*
+/data/*
 *DS_Store
-src/.Rhistory
 *.gz
 *.log
 *.json
