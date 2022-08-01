@@ -137,7 +137,7 @@ sampleTable <- sampleTable %>%
                                           to   = c("neg", "pos"))),
          group = as.factor(prior_covid19))
 
-# Remove 24dose_2 from subject 21 (was missing 0dose_2)
+# Remove 24dose_2 from subject 21 (missing 0dose_2)
 sampleTable<- subset(sampleTable, sample_ID!="P22761_1037_S37")
 
 # Remove one sample from subject 7 (sample replicate)
@@ -694,6 +694,63 @@ lapply(names(ridgeplots), function(x) ggsave(filename = paste0("../", figures.di
                                          plot = ridgeplots[[x]], width = 16, height = 12))
 ```
 
+#### Combined GSEA heatmap
+
+```{r gsea_heatmap}
+my_palette <- colorRampPalette(c("#265891", "white", "#B80F20"))(n = 20)
+sel_list_gse <- list_gse[c("Naïve Dose 1 0-24 hours", 
+                           "Naïve Dose 2 0-24 hours", 
+                           "Naïve Dose 3 0-24 hours", 
+                           "Naïve Dose 3 0-48 hours", 
+                           "Conv Dose 1 0-24 hours", 
+                           "Conv Dose 2 0-24 hours", 
+                           "Conv Dose 3 0-24 hours", 
+                           "Conv Dose 3 0-48 hours")]
+
+combined_gsea <- data.table::rbindlist(lapply(sel_list_gse, as.data.frame), idcol = TRUE) %>%
+  group_by(.id) %>% arrange(desc(NES)) %>% ungroup()
+
+to_heatmap <- combined_gsea %>%
+  select(.id,ID,NES) %>%
+  filter(NES > 2 | NES < -2, !grepl("TBA", ID)) %>%
+  tidyr::pivot_wider(values_from = NES, names_from = ID) %>%
+  mutate(across(where(anyNA), ~ tidyr::replace_na(., 0))) %>%
+  t()
+colnames(to_heatmap) <- to_heatmap[1,] 
+to_heatmap <- to_heatmap[-1,]
+
+col_order <- c("Naïve Dose 1 0-24 hours", 
+                "Conv Dose 1 0-24 hours", 
+               "Naïve Dose 2 0-24 hours", 
+                "Conv Dose 2 0-24 hours", 
+               "Naïve Dose 3 0-24 hours", 
+                "Conv Dose 3 0-24 hours", 
+               "Naïve Dose 3 0-48 hours", 
+                "Conv Dose 3 0-48 hours")
+
+to_heatmap <- to_heatmap[, col_order]
+
+{pdf(paste0("../",result.dir, "heatmap_gsea.pdf"))
+ matrix(as.numeric(to_heatmap),ncol = ncol(to_heatmap)) %>%
+   pheatmap::pheatmap(cellwidth = 20, 
+                      cellheight = 5,
+                      cluster_rows = T,
+                      cluster_cols = F,
+                      clustering_method = "ward.D2",
+                      angle_col = 45,
+                      border_color = "black",
+                      cutree_cols = 4,
+                      color = my_palette,
+                      labels_col = colnames(to_heatmap),
+                      labels_row = rownames(to_heatmap),
+                      treeheight_col = 1,
+                      fontsize_row = 6,
+                      fontsize_col = 8,
+                      gaps_col = c(2, 4, 6))
+ dev.off()
+}
+
+```
 
 #### GSEA Plot  
 Traditional method for visualizing GSEA result.  
