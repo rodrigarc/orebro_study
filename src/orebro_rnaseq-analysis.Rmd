@@ -72,8 +72,8 @@ library(devtools)
 library(clusterProfiler)
 library(enrichplot)
 library(pathview)
+library(ggprism)
 ```
-
 
 ## Load and wrangle raw counts
 
@@ -109,6 +109,7 @@ counts_raw <- dplyr::select(counts_raw, -c(Geneid))
 ```
 
 ## Load metadata and match with raw counts
+
 ```{r}
 # Load sample metadata
 sampleTable <- read.table("../data/metadata/sample_metadata.csv", sep = ",", header = TRUE) %>% 
@@ -156,9 +157,8 @@ all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
 
 ### Inspect raw data
 
-Plotting raw counts for first visual inspection.
-Boxplot, the median values are zero across all samples. 
-Histogram, huge peak of zeros. This data set would benefit from a low count filtering.
+Plotting raw counts for first visual inspection. Boxplot shows median values zero across all samples. In histogram there is a huge peak of zeros. Both indicate that the data set would benefit from a low count filtering.
+
 ```{r}
 # Visualize distribution of raw counts w/ boxplot and density plot
 {
@@ -194,7 +194,6 @@ abline(h=median(colSums(counts_raw>3)))
 Removing reads with the log2 of the counts per million (cpm) lower than 1 (45896 genes).
 
 ```{r}
-
 meanLog2CPM <- rowMeans(log2(cpm(counts_raw) + 1)) 
 counts_filtered <- counts_raw[meanLog2CPM > 1, ] 
 
@@ -236,7 +235,9 @@ hist(log2(as.matrix(counts_filtered)+1),ylab="",las=2,main="Filtered data")
 
 ### DESeq object creation, Normalization and Quality Control
 
-Generating the DESeq dataset.
+Generating three separte DESeq objects with different design parameters to allow for more comparisons. Controlling for age and sex.
+
+Normalize with variance stabilizing transformation
 
 ```{r}
 # Prepare for DESeq
@@ -263,9 +264,6 @@ dds3 <- DESeqDataSetFromMatrix(countData = counts_filtered,
                               colData = as.data.frame(sampleTable),
                               design = ~  sex + age + dose)
 
-# Normalize with rlog
-counts_rlog_normalized <- rlog(dds1, blind = TRUE)
-
 # Normalize with variance stabilizing transformation for later PCA and heatmap
 counts_vst_normalized <- vst(dds1, blind = TRUE)
 ```
@@ -274,11 +272,8 @@ counts_vst_normalized <- vst(dds1, blind = TRUE)
 
 ```{r}
 vst_matrix <- assay(counts_vst_normalized) 
-rlog_matrix <- assay(counts_rlog_normalized)
 hist(vst_matrix)
-hist(rlog_matrix)
 boxplot(vst_matrix ,ylab=expression('Log'[2]~'Read counts'),las=2,main="VST")
-boxplot(rlog_matrix ,ylab=expression('Log'[2]~'Read counts'),las=2,main="rlog")
 
 ```
 
@@ -366,6 +361,8 @@ var$contrib %>%
 
 ## Differential Gene Expression Analysis
 
+Differential Gene Expression Analysis using DESeq2. Comparing parameters; dose, timepoint, prior infection status.
+
 ```{r}
 # Run the DESeq2 analysis
 dds1 <-  DESeq(dds1)
@@ -396,13 +393,13 @@ base_neg_d1_d3 <- compare_DEGs("neg_0_dose3", "neg_0_dose1")
 base_neg_d2_d3 <- compare_DEGs("neg_0_dose2", "neg_0_dose3")
 
 # 0-24h and 0-48 (3rd dose) DEGs
-neg_d1 <- compare_DEGs("neg_24_dose1", "neg_0_dose1")
-neg_d2 <- compare_DEGs("neg_24_dose2", "neg_0_dose2")
+neg_d1 <-    compare_DEGs("neg_24_dose1", "neg_0_dose1")
+neg_d2 <-    compare_DEGs("neg_24_dose2", "neg_0_dose2")
 neg_d3_24 <- compare_DEGs("neg_24_dose3", "neg_0_dose3")
 neg_d3_48 <- compare_DEGs("neg_48_dose3", "neg_0_dose3")
 
-pos_d1 <- compare_DEGs("pos_24_dose1", "pos_0_dose1")
-pos_d2 <- compare_DEGs("pos_24_dose2", "pos_0_dose2")
+pos_d1 <-    compare_DEGs("pos_24_dose1", "pos_0_dose1")
+pos_d2 <-    compare_DEGs("pos_24_dose2", "pos_0_dose2")
 pos_d3_24 <- compare_DEGs("pos_24_dose3", "pos_0_dose3")
 pos_d3_48 <- compare_DEGs("pos_48_dose3", "pos_0_dose3")
 
@@ -411,19 +408,18 @@ pos <- compare_DEGs("pos_24", "pos_0", condition = "time", dds = dds2)
 neg <- compare_DEGs("neg_24", "neg_0", condition = "time", dds = dds2)
 
 # Results dds3
-d1 <- compare_DEGs("24_dose1", "0_dose1", condition = "dose", dds = dds3)
-d2 <- compare_DEGs("24_dose2", "0_dose2", condition = "dose", dds = dds3)
+d1 <-    compare_DEGs("24_dose1", "0_dose1", condition = "dose", dds = dds3)
+d2 <-    compare_DEGs("24_dose2", "0_dose2", condition = "dose", dds = dds3)
 d3_24 <- compare_DEGs("24_dose3", "0_dose3", condition = "dose", dds = dds3)
 d3_48 <- compare_DEGs("48_dose3", "0_dose3", condition = "dose", dds = dds3)
 ```
 
-
 ### Volcano plots
 
-Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
+Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate \< 0.05 and log fold change greater than 1.
 
 ```{r}
-# check only the negative fold change to see if there's a different pahtway of negative fold changes
+# check only the negative fold change to see if there's a different pathway of negative fold changes
 
 results_list <- list(base_pos_neg_d1,
                     base_pos_neg_d2,
@@ -473,6 +469,10 @@ names(results_list) <- c("Baseline Dose 1 Conv vs Naïve",
                          "Dose 3 0-24 hours",
                          "Dose 3 0-48 hours") 
 
+# Optional: uncomment line below to remove all comparisons except naive vs conv at each timepoint
+  # results_list <- results_list[10:17]
+
+# filter up- and downregulated plots
     results_list_plot <- lapply(results_list, function(x) {
   x <- x %>% mutate(test_padj = case_when(padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
                                      padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
@@ -483,7 +483,7 @@ names(results_list) <- c("Baseline Dose 1 Conv vs Naïve",
                     )
   })
     
-# function to plot and save volcano plot
+# function to make volcano plots
 volcano_plot <-  function(x){
   subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 1 & pvalue < 0.05)
   # count up regulated DEGs
@@ -517,13 +517,16 @@ volcano_plots <- lapply(names(results_list_plot), volcano_plot)
 names(volcano_plots) <- names(results_list_plot)
 volcano_plots
 
+# save volcano plots
 lapply(names(volcano_plots), function(x) ggsave(filename = paste0("../", figures.dir, x,"_volcano_plot.png"), width = 7, height = 7,
                                          plot = volcano_plots[[x]]))
 ```
 
 ### Enrichment analysis
 
-Selecting two different databases for search for enrichment analysis. The databases selected were "GO_Biological_Process_2021" and "KEGG_2021_Human". Testing also the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789) using some GSEA package.
+Selecting two different databases for search for enrichment analysis. The databases selected were "GO_Biological_Process_2021" and "KEGG_2021_Human".
+
+Also testing the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789) using some GSEA package.
 
 ```{r}
 #Enrichment analysis
@@ -544,18 +547,20 @@ gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
 
 ```
 
-#### Visualize enriched pathways
+#### Over-Representation Analysis
+
+Over-representation looks for biological pathways that are enriched more than would be expected by chance. It only takes the genes that were found to be differentially expressed into account.
 
 ```{r echo=TRUE, fig.width = 15, fig.height = 8}
 # Remove items without significant results from list
 enrichment_list_up[sapply(enrichment_list_up, is.null)] <- NULL
 enrichment_list_down[sapply(enrichment_list_down, is.null)] <- NULL
 
-# Optional: remove all comparisons except naive vs conv at each timepoint
+# Optional: uncomment two lines below to remove all comparisons except naive vs conv at each timepoint
   # enrichment_list_up <- enrichment_list_up[3:9]
   # enrichment_list_down <- enrichment_list_down[3:6]
 
-# Plot over-representation analysis
+# function for plotting over-representation analysis
 plot_enrichment <- function(enrichment_list){
  plots_enrich <- list()
 for(pathway in 1:length(enrichment_list[[1]])){
@@ -587,7 +592,7 @@ plots <- lapply(plots_enrich, function(x){
   return(plots)
 }
 
-# Plotting over-representation analyssi
+# Plotting over-representation analysis
 enrichment_plot_up <- plot_enrichment(enrichment_list_up)
 enrichment_plot_down <- plot_enrichment(enrichment_list_down)
 
@@ -616,12 +621,14 @@ save_op_plots(enrichment_plot_down)
 
 ```
 
-### Gene Set Enrichment Analysis with ClusterProfiler
+### Gene Set Enrichment Analysis
+
+GSEA looks for patterns of enriched genes which are related to each other. Compared with over-representation analysis this does not rely solely on DEGs. Therefore, this method is better when the differences in gene expression is smaller.
 
 #### Annotations
 
 ```{r, message=F, warning=F}
-# SET THE DESIRED ORGANISM HERE
+# Set desired organim to homo sapiens
 organism <- "org.Hs.eg.db"
 # BiocManager::install(organism, character.only = TRUE)
 library(organism, character.only = TRUE)
@@ -656,13 +663,14 @@ list_gse <- lapply(ls_processed, function(x) GSEA(geneList=x,
 
 ```
 
-
 #### Ridgeplot
 
 Helpful to interpret up/down-regulated pathways.
 
 ```{r fig.width=18, fig.height=12}
-# try also to plot as a heatmap for all the group comparisons
+# Optional: uncomment line below to remove all comparisons except naive vs conv at each timepoint
+# list_gse <- list_gse[10:17]
+
 
 ridgeplotting <- function(x){
   list_gse[[x]] %>%
@@ -695,6 +703,7 @@ lapply(names(ridgeplots), function(x) ggsave(filename = paste0("../", figures.di
 ```
 
 #### Combined GSEA heatmap
+Using the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789).
 
 ```{r gsea_heatmap}
 my_palette <- colorRampPalette(c("#265891", "white", "#B80F20"))(n = 20)
@@ -752,17 +761,6 @@ to_heatmap <- to_heatmap[, col_order]
 
 ```
 
-#### GSEA Plot  
-Traditional method for visualizing GSEA result.  
-  
-```{r fig.height=6, fig.width=8}
-# Use the `Gene Set` param for the index in the title, and as the value for geneSetId
-#gseaplot(gse, by = "all", title = gse$Description[55], geneSetID = 55)
-#head(gse, 100)
-
-```
-
-### Visualization of DEGS
 #### Venn Diagram of DEGs
 
 ```{r venn_diagram}
@@ -781,10 +779,3 @@ to_venn <- list(conv = degs_names[["Conv 0-24 hours"]][[1]],
 ggVennDiagram(to_venn, show_intersect = TRUE)
 ```
 
-
-
-### Session info
-
-```{r}
-sessionInfo()
-```
