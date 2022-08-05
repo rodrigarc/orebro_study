@@ -55,7 +55,7 @@ options(stringsAsFactors = FALSE)
 
 ## Loading libraries
 
-```{r, message=FALSE}
+```{r, results='hide'}
 library(data.table)
 library(kableExtra)
 library(forcats)
@@ -89,7 +89,7 @@ library(ggprism)
 
 ## Load and wrangle raw counts
 
-```{r, include=FALSE}
+```{r, results='hide'}
 # Load 1st batch raw counts
 counts_raw_1 <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", 
                                   header = TRUE, sep = "\t") %>% 
@@ -129,7 +129,7 @@ counts_raw <- dplyr::select(counts_raw, -c(Geneid))
 
 ## Load metadata and match with raw counts
 
-```{r, include=FALSE}
+```{r, results='hide'}
 # Load sample metadata
 sampleTable <- read.table("../data/metadata/sample_metadata.csv", 
                           sep = ",", header = TRUE) %>%
