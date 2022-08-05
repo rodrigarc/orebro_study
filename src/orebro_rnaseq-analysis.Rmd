@@ -486,6 +486,8 @@ names(results_list) <- c("Baseline Dose 1 Conv vs Naïve",
 # function to plot and save volcano plot
 volcano_plot <-  function(x){
   subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 1 & pvalue < 0.05)
+  label.list <- c("RSAD2", "IFIT1", "CXCL10", "CMPK2", "GBP1P1", "IFI44L", "BATF2", "SIGLEC1", "IFI44", "NDUFS4", "MX1", "CXCL9", "FCGR1A", "FCGR1B", "CCL4")
+  label<- subsetted %>% filter(gene_symbol %in% label.list)
   # count up regulated DEGs
   deg_number_up <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), log2FoldChange >= 1 & pvalue < 0.05) %>%
     nrow()
@@ -503,7 +505,7 @@ volcano_plot <-  function(x){
   geom_vline(xintercept = c(-1), linetype = "dotted", size = 1) + 
   geom_vline(xintercept = c(1), linetype = "dotted", size = 1) + 
   geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
- # geom_label_repel(data = subsetted, aes(log2FoldChange,-log10(pvalue),label= gene_symbol), max.overlaps = 10) +
+ geom_label_repel(data = label, aes(log2FoldChange,-log10(pvalue),label= gene_symbol)) +
  xlim(-2,6) +
  ylim(0,20) +
   ggtitle(x) +  
@@ -517,10 +519,9 @@ volcano_plots <- lapply(names(results_list_plot), volcano_plot)
 names(volcano_plots) <- names(results_list_plot)
 volcano_plots
 
-lapply(names(volcano_plots), function(x) ggsave(filename = paste0("../", figures.dir, x,"_volcano_plot.png"), width = 7, height = 7,
+lapply(names(volcano_plots), function(x) ggsave(filename = paste0("../", figures.dir, x,"_volcano_plot.pdf"), width = 7, height = 7,
                                          plot = volcano_plots[[x]]))
 ```
-
 ### Enrichment analysis
 
 Selecting two different databases for search for enrichment analysis. The databases selected were "GO_Biological_Process_2021" and "KEGG_2021_Human". Testing also the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789) using some GSEA package.
