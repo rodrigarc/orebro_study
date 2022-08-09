@@ -55,7 +55,7 @@ options(stringsAsFactors = FALSE)
 
 ## Loading libraries
 
-```{r, message=FALSE}
+```{r, results='hide'}
 library(data.table)
 library(kableExtra)
 library(forcats)
@@ -89,7 +89,7 @@ library(ggprism)
 
 ## Load and wrangle raw counts
 
-```{r, include=FALSE}
+```{r, results='hide'}
 # Load 1st batch raw counts
 counts_raw_1 <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", 
                                   header = TRUE, sep = "\t") %>% 
@@ -129,7 +129,7 @@ counts_raw <- dplyr::select(counts_raw, -c(Geneid))
 
 ## Load metadata and match with raw counts
 
-```{r, include=FALSE}
+```{r, results='hide'}
 # Load sample metadata
 sampleTable <- read.table("../data/metadata/sample_metadata.csv", 
                           sep = ",", header = TRUE) %>%
@@ -187,12 +187,9 @@ all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
 
 ### Inspect raw data
 
-Plotting raw counts for first visual inspection. 
-The boxplot shows median values of zero across all samples. 
-In the histogram there is a huge peak of zero counts. 
-Both indicate that the data set would benefit from a low count filtering.
+Plotting raw counts for first visual inspection. The boxplot shows median values of zero across all samples. In the histogram there is a huge peak of zero counts. Both indicate that the data set would benefit from a low count filtering.
 
-```{r, results='hide'}
+```{r}
 # Visualize distribution of raw counts with boxplot and density plot
 boxplot(log2(as.matrix(counts_raw) + 1),
   ylab = expression("Log"[2] ~ "Read counts"),
@@ -204,10 +201,10 @@ hist(log2(as.matrix(counts_raw) + 1),
   las = 2,
   main = "Raw data"
 )
+
 ```
 
-
-```{r, echo=FALSE}
+```{r, echo=FALSE, results='hide'}
 # Saving plots
 {
   pdf(paste0("../", figures.dir, "raw_counts_QC.pdf"), 
@@ -224,15 +221,15 @@ hist(log2(as.matrix(counts_raw) + 1),
     main = "Raw data"
   )
   par(mfrow = c(1, 1))
-  dev.off()
+  garbage <- dev.off()
 }
 ```
 
 ### Filtering
 
-Plot number of genes detected across samples. 
-All samples are more or less close to average so we don't need to discard any samples.
-```{r, results='hide'}
+Plot number of genes detected across samples. All samples are more or less close to average so we don't need to discard any samples.
+
+```{r}
 barplot(colSums(counts_raw > 3),
   ylab = "Number of detected genes",
   las = 2
@@ -240,7 +237,7 @@ barplot(colSums(counts_raw > 3),
   abline(h = median(colSums(counts_raw > 3)))
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, results='hide'}
 # Saving plots
 {
   pdf(paste0("../", figures.dir, "number_detected_genes.pdf"), 
@@ -255,9 +252,9 @@ barplot(colSums(counts_raw > 3),
 }
 ```
 
-Removing reads with the log2 of the counts per million (cpm) lower than 1 (= 45896 genes).
-Plot genes detection rate across samples, comparing raw and filtered counts.
-```{r, results='hide'}
+Removing reads with the log2 of the counts per million (cpm) lower than 1 (= 45896 genes). Plot genes detection rate across samples, comparing raw and filtered counts.
+
+```{r}
 meanLog2CPM <- rowMeans(log2(cpm(counts_raw) + 1))
 counts_filtered <- counts_raw[meanLog2CPM > 1, ]
 
@@ -265,7 +262,7 @@ hist(rowSums(counts_raw > 3), main = title("Raw Counts"))
 hist(rowSums(counts_filtered > 3), main = title("Filtered Counts"))
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, results='hide'}
 # Saving plots
 {
   pdf(paste0("../", figures.dir, "detection_rate_raw_filtered.pdf"), 
@@ -278,9 +275,9 @@ hist(rowSums(counts_filtered > 3), main = title("Filtered Counts"))
 }
 ```
 
-
 Plot distribution of the filtered counts
-```{r, results='hide'}
+
+```{r}
 boxplot(log2(as.matrix(counts_filtered) + 1),
   ylab = expression("Log"[2] ~ "Read counts"),
   las = 2,
@@ -293,7 +290,7 @@ hist(log2(as.matrix(counts_filtered) + 1),
 )
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, results='hide'}
 {
   pdf(paste0("../", figures.dir, "filtered_counts_distribution.pdf"), 
       width = 10, height = 8, compress = TRUE)
@@ -313,12 +310,11 @@ hist(log2(as.matrix(counts_filtered) + 1),
 }
 ```
 
-
 ### DESeq object creation
 
-Generating three separate DESeq objects with different design parameters to allow for more comparisons. 
-Controlling for age and sex.
-```{r, include=FALSE}
+Generating three separate DESeq objects with different design parameters to allow for more comparisons. Controlling for age and sex.
+
+```{r, results='hide'}
 # Prepare for DESeq by creating new variables and factorizing 
 sampleTable <- sampleTable %>%
   mutate(
@@ -351,12 +347,11 @@ dds3 <- DESeqDataSetFromMatrix(
 )
 ```
 
-
 ### Normalization and Quality Control
 
-Normalize with variance stabilizing transformation
-Plot distribution of data after normalization
-```{r, results='hide'}
+Normalize with variance stabilizing transformation Plot distribution of data after normalization
+
+```{r}
 # Normalize with variance stabilizing transformation for later PCA and heatmap
 counts_vst_normalized <- vst(dds1, blind = TRUE)
 
@@ -368,7 +363,7 @@ boxplot(vst_matrix,
         main = "VST")
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, results='hide'}
 # Saving plots
 
 {
@@ -419,7 +414,6 @@ print(Heatmap)
       plot = Heatmap)
 ```
 
-
 ### Principal Component Analysis (PCA)
 
 Dimensionality reduction for evaluating outliers and global sample clusters for both quality control but also for primary exploratory analysis.
@@ -466,7 +460,7 @@ var$contrib %>%
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, results='hide'}
 # Saving PCA plot
    ggsave(
       filename = paste0("../", figures.dir,"PCA.pdf"),
@@ -486,12 +480,12 @@ var$contrib %>%
   dev.off()
 }
 ```
+
 ## Differential Gene Expression Analysis
 
-Differential Gene Expression Analysis using DESeq2. 
-Comparing parameters; dose, timepoint, prior infection status.
+Differential Gene Expression Analysis using DESeq2. Comparing parameters; dose, time point, prior infection status.
 
-```{r, include=FALSE}
+```{r, results='hide'}
 # Run the DESeq2 analysis
 dds1 <- DESeq(dds1)
 dds2 <- DESeq(dds2)
@@ -544,11 +538,9 @@ d3_48 <- compare_DEGs("48_dose3", "0_dose3", condition = "dose", dds = dds3)
 
 ### Volcano plots
 
-Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate \< 0.05 and log fold change greater than 1.
+Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate \< 0.05 and log fold change greater than 1.(Only showing plot 10-17)
 
 ```{r, warning=FALSE, fig.keep=10:17}
-# check only the negative fold change to see if there's a different pathway of negative fold changes
-
 results_list <- list(
   base_pos_neg_d1,
   base_pos_neg_d2,
@@ -679,7 +671,7 @@ names(volcano_plots) <- names(results_list_plot)
 volcano_plots
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, results='hide'}
 # save volcano plots
 lapply(names(volcano_plots), function(x) {
   ggsave(
@@ -692,12 +684,11 @@ lapply(names(volcano_plots), function(x) {
 
 ### Enrichment analysis
 
-Selecting two different databases for search for enrichment analysis. 
-The databases selected were "GO_Biological_Process_2021" and "KEGG_2021_Human".
+Selecting two different databases for search for enrichment analysis. The databases selected were "GO_Biological_Process_2021" and "KEGG_2021_Human".
 
 Also testing the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789) using some GSEA package.
 
-```{r, include=FALSE}
+```{r, results='hide'}
 # Enrichment analysis
 listEnrichrDbs()
 
@@ -725,8 +716,7 @@ gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
 
 #### Over-Representation Analysis
 
-Over-representation looks for biological pathways that are enriched more than would be expected by chance. 
-It only takes the genes that were found to be differentially expressed into account.
+Over-representation looks for biological pathways that are enriched more than would be expected by chance. It only takes the genes that were found to be differentially expressed into account.
 
 ```{r echo=TRUE, fig.height=8, fig.width=15, message=FALSE, results='hide'}
 # Remove items without significant results from list
@@ -790,7 +780,7 @@ print(enrichment_plot_up)
 print(enrichment_plot_down)
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, results='hide'}
 # function for saving op plots
 save_op_plots <- function(ea_plot_list) {
   lapply(names(ea_plot_list), function(x) {
@@ -807,16 +797,13 @@ save_op_plots(enrichment_plot_up)
 save_op_plots(enrichment_plot_down)
 ```
 
-
 ### Gene Set Enrichment Analysis
 
-GSEA looks for patterns of enriched genes which are related to each other. 
-Compared with over-representation analysis this does not rely solely on DEGs. 
-Therefore, this method is better when the differences in gene expression is smaller.
+GSEA looks for patterns of enriched genes which are related to each other. Compared with over-representation analysis this does not rely solely on DEGs. Therefore, this method is better when the differences in gene expression is smaller.
 
 #### Annotations
 
-```{r, include=FALSE}
+```{r, results='hide'}
 # Set desired organim to homo sapiens
 organism <- "org.Hs.eg.db"
 # BiocManager::install(organism, character.only = TRUE)
@@ -894,7 +881,7 @@ print(ridgeplots)
 
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, results='hide'}
 # save ridge plots
 lapply(names(ridgeplots), function(x) {
   ggsave(
@@ -905,6 +892,7 @@ lapply(names(ridgeplots), function(x) {
 ```
 
 #### Combined GSEA heatmap
+
 Using the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789).
 
 ```{r, gsea_heatmap}
@@ -949,6 +937,8 @@ to_heatmap <- to_heatmap[, col_order]
 
 BTM_heatmap <- matrix(as.numeric(to_heatmap), ncol = ncol(to_heatmap)) %>%
     pheatmap::pheatmap(
+      width = 6,
+      height = 20,
       cellwidth = 20,
       cellheight = 5,
       cluster_rows = TRUE,
@@ -965,10 +955,9 @@ BTM_heatmap <- matrix(as.numeric(to_heatmap), ncol = ncol(to_heatmap)) %>%
       fontsize_col = 8,
       gaps_col = c(2, 4, 6)
     )
-BTM_heatmap
 ```
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, results='hide'}
 # save BTM heatmap
    ggsave(
       filename = paste0("../", figures.dir,"BTM_heatmap.pdf"),
