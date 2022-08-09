@@ -14,54 +14,66 @@ editor_options:
   chunk_output_type: inline
 ---
 
-```{r global.options, include=FALSE}
+```{r, global.options, include=FALSE}
 # Set up figures and chunks messages
 
-knitr::opts_knit$set(echo = TRUE,
-                     root.dir = getwd(),
-                     fig.width = 6, fig.height = 5,
-                     fig.align = "center",
-                     out.width = 768,
-                     fig.pos = "H",
-                     warning = FALSE, 
-                     message = FALSE)
-knitr::opts_chunk$set(warning = FALSE,
-                      message = FALSE,
-                      fig.width = 6, fig.height = 5,
-                     fig.align = "center",
-                     out.width = 768,
-                     fig.pos = "H")
+knitr::opts_knit$set(
+  echo = TRUE,
+  root.dir = getwd(),
+  fig.width = 6, fig.height = 5,
+  fig.align = "center",
+  out.width = 768,
+  fig.pos = "H",
+  warning = FALSE,
+  message = FALSE
+)
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 6, fig.height = 5,
+  fig.align = "center",
+  out.width = 768,
+  fig.pos = "H"
+)
 
-result.dir <- paste0("results/",Sys.Date(),"/")
-figures.dir <- paste0("results/",Sys.Date(),"/", "figures/")
+result.dir <- paste0("results/", Sys.Date(), "/")
+figures.dir <- paste0("results/", Sys.Date(), "/", "figures/")
+
 # Create result.dir with date in if not existent
-ifelse(isFALSE(dir.exists(paste0("../",result.dir))), dir.create(paste0("../",result.dir),recursive = TRUE),"Result directory for today exists already!")
-ifelse(isFALSE(dir.exists(paste0("../",figures.dir))), dir.create(paste0("../",figures.dir),recursive = TRUE),"Result directory for today exists already!")
+ifelse(isFALSE(dir.exists(paste0("../", result.dir))),
+  dir.create(paste0("../", result.dir), recursive = TRUE),
+  "Result directory for today exists already!"
+)
 
-options(stringsAsFactors = FALSE) 
+ifelse(isFALSE(dir.exists(paste0("../", figures.dir))),
+  dir.create(paste0("../", figures.dir), recursive = TRUE),
+  "Result directory for today exists already!"
+)
+
+options(stringsAsFactors = FALSE)
 ```
 
 ## Loading libraries
 
-```{r, message=FALSE}
+```{r, results='hide'}
 library(data.table)
 library(kableExtra)
 library(forcats)
 library(caret)
 library(C50)
 library(mgsub)
-library(DESeq2) 
-library(pheatmap) 
-library(ggplot2) 
-library(ggrepel) 
-library(RColorBrewer) 
-library(limma) 
-library(edgeR) 
-library(enrichR) 
-library(gridExtra) 
+library(DESeq2)
+library(pheatmap)
+library(ggplot2)
+library(ggrepel)
+library(RColorBrewer)
+library(limma)
+library(edgeR)
+library(enrichR)
+library(gridExtra)
 library(stringr)
 library(ggVennDiagram)
-library(dplyr) 
+library(dplyr)
 library(ensembldb)
 library(EnsDb.Hsapiens.v86)
 library(factoextra)
@@ -72,17 +84,21 @@ library(devtools)
 library(clusterProfiler)
 library(enrichplot)
 library(pathview)
+library(ggprism)
 ```
-
 
 ## Load and wrangle raw counts
 
-```{r}
+```{r, results='hide'}
 # Load 1st batch raw counts
-counts_raw_1 <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>%  as.data.frame()
+counts_raw_1 <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", 
+                                  header = TRUE, sep = "\t") %>% 
+  as.data.frame()
 
 # Load 2nd batch raw counts
-counts_raw_2 <- data.table::fread("../data/proces-data_core-facility/3rd_subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>% as.data.frame()
+counts_raw_2 <- data.table::fread("../data/proces-data_core-facility/3rd_subreadCounts_hg38ens_minus_frag.txt", 
+                                  header = TRUE, sep = "\t") %>% 
+  as.data.frame()
 
 # Join raw count data frames
 counts_raw <- left_join(counts_raw_1, counts_raw_2, by = "Geneid")
@@ -90,58 +106,73 @@ counts_raw <- left_join(counts_raw_1, counts_raw_2, by = "Geneid")
 # Rename genes based on Emsembl annotation
 edb <- EnsDb.Hsapiens.v86
 edb_genes <- genes(edb) %>% as.data.frame()
-  
+
 # Remove unnecessary columns and convert 'Geneid' to gene names
 counts_raw <- counts_raw %>%
   dplyr::select(-contains(c("Chr", "Start", "End", "Strand", "Length"))) %>%
-  dplyr::mutate(Geneid = plyr::mapvalues(x = counts_raw$Geneid, 
-                                         from = edb_genes$gene_id, 
-                                         to = edb_genes$symbol, 
-                                         warn_missing = FALSE))
-  
+  dplyr::mutate(Geneid = plyr::mapvalues(
+    x = counts_raw$Geneid,
+    from = edb_genes$gene_id,
+    to = edb_genes$symbol,
+    warn_missing = FALSE
+  ))
+
 # Aggregate and sum up genes with same gene symbol (basically non-coding RNAs)
-counts_raw <- aggregate(counts_raw[,-1], list(Geneid=counts_raw[,1]), FUN = sum)
+counts_raw <- aggregate(counts_raw[, -1], 
+                        list(Geneid = counts_raw[, 1]), 
+                        FUN = sum)
 
 # Change row names to gene names
 rownames(counts_raw) <- counts_raw$Geneid
 counts_raw <- dplyr::select(counts_raw, -c(Geneid))
-
 ```
 
 ## Load metadata and match with raw counts
-```{r}
+
+```{r, results='hide'}
 # Load sample metadata
-sampleTable <- read.table("../data/metadata/sample_metadata.csv", sep = ",", header = TRUE) %>% 
+sampleTable <- read.table("../data/metadata/sample_metadata.csv", 
+                          sep = ",", header = TRUE) %>%
   dplyr::select(-c(age, sex))
 
 # Load patient metadata
-patient_metadata <- read.table("../data/metadata/patient_metadata.csv", sep = ",", header = TRUE)
+patient_metadata <- read.table("../data/metadata/patient_metadata.csv", 
+                               sep = ",", header = TRUE)
 
 # Join sample and patient metadata
 sampleTable <- sampleTable %>% left_join(patient_metadata, by = "subject_ID")
 
 # Change visits to dose and time point...
 sampleTable <- sampleTable %>%
- mutate(dose  = as.factor(plyr::mapvalues(visit, 
-                                          from = c(1, 2, 4, 5, 10, 11, 12),
-                                          to   = c("0_dose1", "24_dose1", "0_dose2", "24_dose2", "0_dose3", "24_dose3", "48_dose3"))),
-         group = as.factor(group)) %>% 
-#...(sex) 0 and 1 to male and female...
-  mutate(sex  = as.factor(plyr::mapvalues(sex, 
-                                          from = c(0, 1),
-                                          to   = c("male", "female"))),
-         group = as.factor(sex)) %>% 
-#...(prior covid) 0 and 1 to neg and pos
-  mutate(prior_covid19  = as.factor(plyr::mapvalues(prior_covid19, 
-                                          from = c(0, 1),
-                                          to   = c("neg", "pos"))),
-         group = as.factor(prior_covid19))
+  mutate(
+    dose = as.factor(plyr::mapvalues(visit,
+      from = c(1, 2, 4, 5, 10, 11, 12),
+      to   = c("0_dose1", "24_dose1", "0_dose2", "24_dose2", "0_dose3", "24_dose3", "48_dose3")
+    )),
+    group = as.factor(group)
+  ) %>%
+  # ...(sex) 0 and 1 to male and female...
+  mutate(
+    sex = as.factor(plyr::mapvalues(sex,
+      from = c(0, 1),
+      to   = c("male", "female")
+    )),
+    group = as.factor(sex)
+  ) %>%
+  # ...(prior covid) 0 and 1 to neg and pos
+  mutate(
+    prior_covid19 = as.factor(plyr::mapvalues(prior_covid19,
+      from = c(0, 1),
+      to   = c("neg", "pos")
+    )),
+    group = as.factor(prior_covid19)
+  )
 
-# Remove 24dose_2 from subject 21 (was missing 0dose_2)
-sampleTable<- subset(sampleTable, sample_ID!="P22761_1037_S37")
+# Remove 24dose_2 from subject 21 (missing 0dose_2)
+sampleTable <- subset(sampleTable, sample_ID != "P22761_1037_S37")
 
 # Remove one sample from subject 7 (sample replicate)
-sampleTable<- subset(sampleTable, sample_ID!="P26208_1060_S62")
+sampleTable <- subset(sampleTable, sample_ID != "P26208_1060_S62")
 
 # Remove corresponding samples from count table
 counts_raw <- subset(counts_raw, select = -c(P26208_1060_S62, P22761_1037_S37))
@@ -156,202 +187,268 @@ all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
 
 ### Inspect raw data
 
-Plotting raw counts for first visual inspection.
-Boxplot, the median values are zero across all samples. 
-Histogram, huge peak of zeros. This data set would benefit from a low count filtering.
-```{r}
-# Visualize distribution of raw counts w/ boxplot and density plot
-{
-  pdf(paste0("../", figures.dir,"raw_counts_QC.pdf"), width = 10,  height = 8, compress = TRUE )
-  rafalib::mypar(1,2,mar=c(10,3,3,2))
-  boxplot(log2(as.matrix(counts_raw)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Raw data")
-  hist(log2(as.matrix(counts_raw)+1),ylab="",las=2,main="Raw data")
-  par(mfrow=c(1,1))
-  dev.off()
-}
+Plotting raw counts for first visual inspection. The boxplot shows median values of zero across all samples. In the histogram there is a huge peak of zero counts. Both indicate that the data set would benefit from a low count filtering.
 
-boxplot(log2(as.matrix(counts_raw)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Raw data")
-hist(log2(as.matrix(counts_raw)+1),ylab="",las=2,main="Raw data")
+```{r}
+# Visualize distribution of raw counts with boxplot and density plot
+boxplot(log2(as.matrix(counts_raw) + 1),
+  ylab = expression("Log"[2] ~ "Read counts"),
+  las = 2,
+  main = "Raw data"
+)
+hist(log2(as.matrix(counts_raw) + 1),
+  ylab = "",
+  las = 2,
+  main = "Raw data"
+)
+
 ```
 
-### Filter data
+```{r, echo=FALSE, results='hide'}
+# Saving plots
+{
+  pdf(paste0("../", figures.dir, "raw_counts_QC.pdf"), 
+      width = 10, height = 8, compress = TRUE)
+  rafalib::mypar(1, 2, mar = c(10, 3, 3, 2))
+  boxplot(log2(as.matrix(counts_raw) + 1),
+    ylab = expression("Log"[2] ~ "Read counts"),
+    las = 2,
+    main = "Raw data"
+  )
+  hist(log2(as.matrix(counts_raw) + 1),
+    ylab = "",
+    las = 2,
+    main = "Raw data"
+  )
+  par(mfrow = c(1, 1))
+  garbage <- dev.off()
+}
+```
+
+### Filtering
 
 Plot number of genes detected across samples. All samples are more or less close to average so we don't need to discard any samples.
 
 ```{r}
-{
-  pdf(paste0("../", figures.dir,"number_detected_genes.pdf"), width = 10,  height = 8, compress = TRUE )
-  par(mar=c(10,4,3,4))
-  barplot(colSums(counts_raw>3),ylab="Number of detected genes",las=2) +
-  abline(h=median(colSums(counts_raw>3)))
-  dev.off()
-}
-barplot(colSums(counts_raw>3),ylab="Number of detected genes",las=2)+
-abline(h=median(colSums(counts_raw>3)))
- 
+barplot(colSums(counts_raw > 3),
+  ylab = "Number of detected genes",
+  las = 2
+) +
+  abline(h = median(colSums(counts_raw > 3)))
 ```
 
-Removing reads with the log2 of the counts per million (cpm) lower than 1 (45896 genes).
-
-```{r}
-
-meanLog2CPM <- rowMeans(log2(cpm(counts_raw) + 1)) 
-counts_filtered <- counts_raw[meanLog2CPM > 1, ] 
-
-```
-
-Plot genes detection rate across samples, comparing raw and filtered counts
-
-```{r}
+```{r, echo=FALSE, results='hide'}
+# Saving plots
 {
-  pdf(paste0("../", figures.dir,"detection_rate_raw_filtered.pdf"), width = 10,  height = 8, compress = TRUE )
-  par(mar=c(10,4,3,4))
-  hist(rowSums(counts_raw>3))
-  hist(rowSums(counts_filtered>3))
-  par(mfrow=c(1,1))
+  pdf(paste0("../", figures.dir, "number_detected_genes.pdf"), 
+      width = 10, height = 8, compress = TRUE)
+  par(mar = c(10, 4, 3, 4))
+  barplot(colSums(counts_raw > 3),
+    ylab = "Number of detected genes",
+    las = 2
+  ) +
+    abline(h = median(colSums(counts_raw > 3)))
   dev.off()
 }
+```
 
-hist(rowSums(counts_raw>3))
-hist(rowSums(counts_filtered>3))
- 
+Removing reads with the log2 of the counts per million (cpm) lower than 1 (= 45896 genes). Plot genes detection rate across samples, comparing raw and filtered counts.
+
+```{r}
+meanLog2CPM <- rowMeans(log2(cpm(counts_raw) + 1))
+counts_filtered <- counts_raw[meanLog2CPM > 1, ]
+
+hist(rowSums(counts_raw > 3), main = title("Raw Counts"))
+hist(rowSums(counts_filtered > 3), main = title("Filtered Counts"))
+```
+
+```{r, echo=FALSE, results='hide'}
+# Saving plots
+{
+  pdf(paste0("../", figures.dir, "detection_rate_raw_filtered.pdf"), 
+      width = 10, height = 8, compress = TRUE)
+  par(mar = c(10, 4, 3, 4))
+  hist(rowSums(counts_raw > 3), main = title("Raw Counts"))
+  hist(rowSums(counts_filtered > 3), main = title("Filtered Counts"))
+  par(mfrow = c(1, 1))
+  dev.off()
+}
 ```
 
 Plot distribution of the filtered counts
 
 ```{r}
+boxplot(log2(as.matrix(counts_filtered) + 1),
+  ylab = expression("Log"[2] ~ "Read counts"),
+  las = 2,
+  main = "Filtered data"
+)
+hist(log2(as.matrix(counts_filtered) + 1),
+  ylab = "",
+  las = 2,
+  main = "Filtered data"
+)
+```
+
+```{r, echo=FALSE, results='hide'}
 {
-  pdf(paste0("../", figures.dir,"filtered_counts_distribution.pdf"), width = 10,  height = 8, compress = TRUE )
-  rafalib::mypar(1,2,mar=c(10,3,3,2))
-  boxplot(log2(as.matrix(counts_filtered)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Filtered data")
-  hist(log2(as.matrix(counts_filtered)+1),ylab="",las=2,main="Filtered data")
-  par(mfrow=c(1,1))
+  pdf(paste0("../", figures.dir, "filtered_counts_distribution.pdf"), 
+      width = 10, height = 8, compress = TRUE)
+  rafalib::mypar(1, 2, mar = c(10, 3, 3, 2))
+  boxplot(log2(as.matrix(counts_filtered) + 1),
+    ylab = expression("Log"[2] ~ "Read counts"),
+    las = 2,
+    main = "Filtered data"
+  )
+  hist(log2(as.matrix(counts_filtered) + 1),
+    ylab = "",
+    las = 2,
+    main = "Filtered data"
+  )
+  par(mfrow = c(1, 1))
   dev.off()
 }
-
-boxplot(log2(as.matrix(counts_filtered)+1),ylab=expression('Log'[2]~'Read counts'),las=2,main="Filtered data")
-hist(log2(as.matrix(counts_filtered)+1),ylab="",las=2,main="Filtered data")
-  
 ```
 
-### DESeq object creation, Normalization and Quality Control
+### DESeq object creation
 
-Generating the DESeq dataset.
+Generating three separate DESeq objects with different design parameters to allow for more comparisons. Controlling for age and sex.
 
-```{r}
-# Prepare for DESeq
-# Create new variables and factorize needed variables
+```{r, results='hide'}
+# Prepare for DESeq by creating new variables and factorizing 
 sampleTable <- sampleTable %>%
-  mutate(conditions = paste0(sampleTable$group, "_", sampleTable$dose),
-         time = gsub('.{6}$', '', conditions),
-         conditions = factor(conditions),
-         time = factor(time),
-         sex = factor(sex),
-         dose = factor(dose),
-         group = factor(group))
+  mutate(
+    conditions = paste0(sampleTable$group, "_", sampleTable$dose),
+    time = gsub(".{6}$", "", conditions),
+    conditions = factor(conditions),
+    time = factor(time),
+    sex = factor(sex),
+    dose = factor(dose),
+    group = factor(group)
+  )
 
 # create 3 DESeq objects comparing against conditions, time and dose
-dds1 <- DESeqDataSetFromMatrix(countData = counts_filtered,
-                              colData = as.data.frame(sampleTable),
-                              design = ~  sex + age + conditions)
+dds1 <- DESeqDataSetFromMatrix(
+  countData = counts_filtered,
+  colData = as.data.frame(sampleTable),
+  design = ~ sex + age + conditions
+)
 
-dds2 <- DESeqDataSetFromMatrix(countData = counts_filtered,
-                              colData = as.data.frame(sampleTable),
-                              design = ~  sex + age + time)
+dds2 <- DESeqDataSetFromMatrix(
+  countData = counts_filtered,
+  colData = as.data.frame(sampleTable),
+  design = ~ sex + age + time
+)
 
-dds3 <- DESeqDataSetFromMatrix(countData = counts_filtered,
-                              colData = as.data.frame(sampleTable),
-                              design = ~  sex + age + dose)
-
-# Normalize with rlog
-counts_rlog_normalized <- rlog(dds1, blind = TRUE)
-
-# Normalize with variance stabilizing transformation for later PCA and heatmap
-counts_vst_normalized <- vst(dds1, blind = TRUE)
+dds3 <- DESeqDataSetFromMatrix(
+  countData = counts_filtered,
+  colData = as.data.frame(sampleTable),
+  design = ~ sex + age + dose
+)
 ```
 
-#### Plot distribution of data after normalization
+### Normalization and Quality Control
+
+Normalize with variance stabilizing transformation Plot distribution of data after normalization
 
 ```{r}
-vst_matrix <- assay(counts_vst_normalized) 
-rlog_matrix <- assay(counts_rlog_normalized)
-hist(vst_matrix)
-hist(rlog_matrix)
-boxplot(vst_matrix ,ylab=expression('Log'[2]~'Read counts'),las=2,main="VST")
-boxplot(rlog_matrix ,ylab=expression('Log'[2]~'Read counts'),las=2,main="rlog")
+# Normalize with variance stabilizing transformation for later PCA and heatmap
+counts_vst_normalized <- vst(dds1, blind = TRUE)
 
+vst_matrix <- assay(counts_vst_normalized)
+hist(vst_matrix)
+boxplot(vst_matrix, 
+        ylab = expression("Log"[2] ~ "Read counts"), 
+        las = 2, 
+        main = "VST")
+```
+
+```{r, echo=FALSE, results='hide'}
+# Saving plots
+
+{
+  pdf(paste0("../", figures.dir, "VST.pdf"), 
+      width = 10, height = 8, compress = TRUE)
+  rafalib::mypar(1, 2, mar = c(10, 3, 3, 2))
+  hist(vst_matrix)
+  boxplot(vst_matrix, 
+        ylab = expression("Log"[2] ~ "Read counts"), 
+        las = 2, 
+        main = "VST")
+  par(mfrow = c(1, 1))
+  dev.off()
+}
 ```
 
 ### Heatmap
 
 ```{r}
 # Sample heatmap
-sampleDist <- cor(vst_matrix, method = "spearman") 
+sampleDist <- cor(vst_matrix, method = "spearman")
 
 Metadata <- data.frame(sampleTable$group, sampleTable$dose)
-names(Metadata) <- c("Group","Dose")
+names(Metadata) <- c("Group", "Dose")
 rownames(Metadata) <- sampleTable$sample_ID
 
 # Plot heatmap
-colors<-colorRampPalette(rev(brewer.pal(n=7,name="RdBu")))(255)
+colors <- colorRampPalette(rev(brewer.pal(n = 7, name = "RdBu")))(255)
 
-{
-  pdf(paste0("../", figures.dir,"heatmap.pdf"), width = 10,  height = 8, compress = TRUE )
- Heatmap <-  pheatmap(sampleDist, 
-           color = colors,
-           clustering_distance_rows = as.dist(1 - sampleDist),
-           clustering_distance_cols = as.dist(1 - sampleDist), 
-           show_rownames = F,
-           show_colnames = F,
-           clustering_method = "ward.D2",
-           annotation_col = Metadata)
-  par(mfrow=c(1,1))
-  dev.off()
-}
+Heatmap <- pheatmap(sampleDist,
+  color = colors,
+  clustering_distance_rows = as.dist(1 - sampleDist),
+  clustering_distance_cols = as.dist(1 - sampleDist),
+  show_rownames = FALSE,
+  show_colnames = FALSE,
+  clustering_method = "ward.D2",
+  annotation_col = Metadata
+)
 
 print(Heatmap)
 ```
 
-### Principal Component Analyais (PCA)
+```{r, echo=FALSE}
+# Saving heatmap
+   ggsave(
+      filename = paste0("../", figures.dir,"Heatmap.png"),
+      height = 8, width = 10,
+      plot = Heatmap)
+```
+
+### Principal Component Analysis (PCA)
 
 Dimensionality reduction for evaluating outliers and global sample clusters for both quality control but also for primary exploratory analysis.
 
 ```{r}
 # PCA plot
 pcaRes <- prcomp(t(assay(counts_vst_normalized)))
-varExp <- round(summary(pcaRes)[[1]],digits = 2)
+varExp <- round(summary(pcaRes)[[1]], digits = 2)
 
 pcaDF <- data.frame(
   PC1 = pcaRes$x[, 1],
   PC2 = pcaRes$x[, 2],
   Group = sampleTable$group,
   Sample = sampleTable$sample_ID,
-  Dose = sampleTable$dose)
+  Dose = sampleTable$dose
+)
 
-{ 
-  pdf(paste0("../", figures.dir,"PCA.pdf"), width = 10,  height = 8, compress = TRUE )
-  pcaPlot <- ggplot( pcaDF, mapping = aes(x = PC1, y = PC2, color = Group, label = Sample)) + 
+pcaPlot <- ggplot(pcaDF, mapping = aes(x = PC1, y = PC2, color = Group, label = Sample)) +
   geom_point(aes(shape = Group), size = 3) +
-  labs(x = paste0("PC1 (", varExp[1], " %)"), y = paste0("PC2 (", varExp[2], " %)")) + 
-  theme(axis.text = element_text(size = 12), legend.text = element_text(size = 10)) +
+  labs(x = paste0("PC1 (", varExp[1], " %)"), 
+       y = paste0("PC2 (", varExp[2], " %)")) +
+  theme(axis.text = element_text(size = 12), 
+        legend.text = element_text(size = 10)) +
   scale_color_manual(values = brewer.pal(3, "Accent")) +
   cowplot::theme_cowplot()
-  par(mfrow=c(1,1))
-  dev.off()
-}
 
 print(pcaPlot)
 
-# Plot scree plot 
+# Scree plot, showing contribution of principal components in descending order
 pca.var <- pcaRes$sdev^2
-pca.var.per <- round(pca.var/sum(pca.var)*100, 1)
-{
-  pdf(paste0("../", figures.dir,"Scree_plot.pdf"), width = 10,  height = 8, compress = TRUE )  
-  barplot(pca.var.per, main="Scree Plot", xlab="Principal Component", ylab="Percent Variation")
-  par(mfrow=c(1,1))
-  dev.off()
-}
-barplot(pca.var.per, main="Scree Plot", xlab="Principal Component", ylab="Percent Variation")
+pca.var.per <- round(pca.var / sum(pca.var) * 100, 1)
+
+barplot(pca.var.per, main = "Scree Plot", 
+        xlab = "Principal Component", 
+        ylab = "Percent Variation")
 
 # Explore which variables contribute the most for each PC
 var <- get_pca_var(pcaRes)
@@ -360,17 +457,39 @@ var$contrib %>%
   arrange(desc(Dim.1)) %>%
   head() %>%
   kableExtra::kable() %>%
-  kable_styling(bootstrap_options = "striped", full_width = F)
-  
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+```
+
+```{r, echo=FALSE, results='hide'}
+# Saving PCA plot
+   ggsave(
+      filename = paste0("../", figures.dir,"PCA.pdf"),
+      height = 8, width = 10,
+      plot = pcaPlot)
+
+# Saving Scree plot
+{
+  pdf(paste0("../", figures.dir, "Scree_plot.pdf"), 
+      width = 10, height = 8, compress = TRUE)
+  barplot(pca.var.per,
+    main = "Scree Plot",
+    xlab = "Principal Component",
+    ylab = "Percent Variation"
+  )
+  par(mfrow = c(1, 1))
+  dev.off()
+}
 ```
 
 ## Differential Gene Expression Analysis
 
-```{r}
+Differential Gene Expression Analysis using DESeq2. Comparing parameters; dose, time point, prior infection status.
+
+```{r, results='hide'}
 # Run the DESeq2 analysis
-dds1 <-  DESeq(dds1)
-dds2 <-  DESeq(dds2)
-dds3 <-  DESeq(dds3)
+dds1 <- DESeq(dds1)
+dds2 <- DESeq(dds2)
+dds3 <- DESeq(dds3)
 
 # Contrast
 resultsNames(dds1)
@@ -380,18 +499,18 @@ resultsNames(dds3)
 # Create function for makings comparisons with default being conditions and dds1
 compare_DEGs <- function(variable1, variable2, condition = "conditions", dds = dds1) {
   as.data.frame(results(dds, contrast = c(condition, variable1, variable2)))
-} 
+}
 
 # Baselines DEGs
 base_pos_neg_d1 <- compare_DEGs("pos_0_dose1", "neg_0_dose1")
 base_pos_neg_d2 <- compare_DEGs("pos_0_dose2", "neg_0_dose2")
 base_pos_neg_d3 <- compare_DEGs("pos_0_dose3", "neg_0_dose3")
 
-base_pos_d1_d2 <- compare_DEGs("pos_0_dose2", "pos_0_dose1") 
-base_pos_d1_d3 <- compare_DEGs("pos_0_dose3", "pos_0_dose1") 
+base_pos_d1_d2 <- compare_DEGs("pos_0_dose2", "pos_0_dose1")
+base_pos_d1_d3 <- compare_DEGs("pos_0_dose3", "pos_0_dose1")
 base_pos_d2_d3 <- compare_DEGs("pos_0_dose2", "pos_0_dose3")
 
-base_neg_d1_d2 <- compare_DEGs("neg_0_dose2", "neg_0_dose1") 
+base_neg_d1_d2 <- compare_DEGs("neg_0_dose2", "neg_0_dose1")
 base_neg_d1_d3 <- compare_DEGs("neg_0_dose3", "neg_0_dose1")
 base_neg_d2_d3 <- compare_DEGs("neg_0_dose2", "neg_0_dose3")
 
@@ -417,14 +536,12 @@ d3_24 <- compare_DEGs("24_dose3", "0_dose3", condition = "dose", dds = dds3)
 d3_48 <- compare_DEGs("48_dose3", "0_dose3", condition = "dose", dds = dds3)
 ```
 
-
 ### Volcano plots
+
 
 Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
 
 ```{r}
-# check only the negative fold change to see if there's a different pahtway of negative fold changes
-
 results_list <- list(base_pos_neg_d1,
                     base_pos_neg_d2,
                     base_pos_neg_d3, 
@@ -486,14 +603,24 @@ names(results_list) <- c("Baseline Dose 1 Conv vs Naïve",
 # function to plot and save volcano plot
 volcano_plot <-  function(x){
   subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 1 & pvalue < 0.05)
-  label.list <- c("RSAD2", "IFIT1", "CXCL10", "CMPK2", "GBP1P1", "IFI44L", "BATF2", "SIGLEC1", "IFI44", "NDUFS4", "MX1", "CXCL9", "FCGR1A", "FCGR1B", "CCL4")
-  label<- subsetted %>% filter(gene_symbol %in% label.list)
+  label_list <- c("RSAD2", "IFIT1", "CXCL10", "CMPK2", "GBP1P1", "IFI44L", "BATF2", "SIGLEC1", "IFI44", "NDUFS4", "MX1", "CXCL9", "FCGR1A", "FCGR1B", "CCL4")
+  label<- subsetted %>% filter(gene_symbol %in% label_list)
+
   # count up regulated DEGs
-  deg_number_up <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), log2FoldChange >= 1 & pvalue < 0.05) %>%
+  deg_number_up <- subset(
+    results_list_plot[[x]] %>%
+      tibble::rownames_to_column("gene_symbol"),
+    log2FoldChange >= 1 & pvalue < 0.05
+  ) %>%
     nrow()
   # count down regulated DEGs
-  deg_number_down <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), log2FoldChange <= -1 & pvalue < 0.05) %>%
+  deg_number_down <- subset(
+    results_list_plot[[x]] %>%
+      tibble::rownames_to_column("gene_symbol"),
+    log2FoldChange <= -1 & pvalue < 0.05
+  ) %>%
     nrow()
+
   
   results_list_plot[[x]] %>% 
   ggplot(aes(x = log2FoldChange, y = -log10(pvalue))) +
@@ -515,114 +642,147 @@ volcano_plot <-  function(x){
   theme(axis.ticks = element_line(size = .5),legend.position = 'none' ) 
   }
 
+
 volcano_plots <- lapply(names(results_list_plot), volcano_plot)
 names(volcano_plots) <- names(results_list_plot)
 volcano_plots
+```
 
-lapply(names(volcano_plots), function(x) ggsave(filename = paste0("../", figures.dir, x,"_volcano_plot.pdf"), width = 7, height = 7,
-                                         plot = volcano_plots[[x]]))
+
+```{r, echo=FALSE, results='hide'}
+# save volcano plots
+lapply(names(volcano_plots), function(x) {
+  ggsave(
+    filename = paste0("../", figures.dir, x, "_volcano_plot.pdf"), 
+    width = 7, height = 7,
+    plot = volcano_plots[[x]]
+  )
+})
+
 ```
 ### Enrichment analysis
 
-Selecting two different databases for search for enrichment analysis. The databases selected were "GO_Biological_Process_2021" and "KEGG_2021_Human". Testing also the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789) using some GSEA package.
+Selecting two different databases for search for enrichment analysis. The databases selected were "GO_Biological_Process_2021" and "KEGG_2021_Human".
 
-```{r}
-#Enrichment analysis
+Also testing the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789) using some GSEA package.
+
+```{r, results='hide'}
+# Enrichment analysis
 listEnrichrDbs()
 
 enrichment_list_up <- lapply(results_list_plot, function(x) {
   enrichr(
-  genes = rownames(x[x$test_padj == "Up regulated", ]),
-  databases = c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021"))})
+    genes = rownames(x[x$test_padj == "Up regulated", ]),
+    databases = c("GO_Biological_Process_2021", 
+                  "KEGG_2021_Human", 
+                  "GO_Molecular_Function_2021")
+  )
+})
 
 
 enrichment_list_down <- lapply(results_list_plot, function(x) {
   enrichr(
-  genes = rownames(x[x$test_padj == "Down regulated", ]),
-  databases = c("GO_Biological_Process_2021", "KEGG_2021_Human","GO_Molecular_Function_2021"))})
+    genes = rownames(x[x$test_padj == "Down regulated", ]),
+    databases = c("GO_Biological_Process_2021", 
+                  "KEGG_2021_Human", 
+                  "GO_Molecular_Function_2021")
+  )
+})
 
 gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
-
 ```
 
-#### Visualize enriched pathways
+#### Over-Representation Analysis
 
-```{r echo=TRUE, fig.width = 15, fig.height = 8}
+Over-representation looks for biological pathways that are enriched more than would be expected by chance. It only takes the genes that were found to be differentially expressed into account.
+
+```{r echo=TRUE, fig.height=8, fig.width=15, message=FALSE, results='hide'}
 # Remove items without significant results from list
 enrichment_list_up[sapply(enrichment_list_up, is.null)] <- NULL
 enrichment_list_down[sapply(enrichment_list_down, is.null)] <- NULL
 
-# Optional: remove all comparisons except naive vs conv at each timepoint
-  # enrichment_list_up <- enrichment_list_up[3:9]
-  # enrichment_list_down <- enrichment_list_down[3:6]
+# Optional: uncomment two lines below to remove all comparisons except naive vs conv at each timepoint
+# enrichment_list_up <- enrichment_list_up[3:9]
+# enrichment_list_down <- enrichment_list_down[3:6]
 
-# Plot over-representation analysis
-plot_enrichment <- function(enrichment_list){
- plots_enrich <- list()
-for(pathway in 1:length(enrichment_list[[1]])){
-  
-  rbinded_enrich_list <- lapply(enrichment_list, function(x)x[[pathway]])
-  print(names(enrichment_list[[1]])[[pathway]])
-  rbinded_enrich_df <- data.table::rbindlist(l = rbinded_enrich_list, idcol = TRUE, fill = TRUE)
-  
-  plots_enrich[[pathway]] <- rbinded_enrich_df %>%
-  group_by(.id) %>%
-  arrange(Adjusted.P.value) %>%
-  slice(1:10) 
+# function for plotting over-representation analysis
+plot_enrichment <- function(enrichment_list) {
+  plots_enrich <- list()
+  for (pathway in 1:length(enrichment_list[[1]])) {
+    rbinded_enrich_list <- lapply(enrichment_list, function(x) x[[pathway]])
+    print(names(enrichment_list[[1]])[[pathway]])
+    rbinded_enrich_df <- data.table::rbindlist(l = rbinded_enrich_list, idcol = TRUE, fill = TRUE)
+
+    plots_enrich[[pathway]] <- rbinded_enrich_df %>%
+      group_by(.id) %>%
+      arrange(Adjusted.P.value) %>%
+      slice(1:10)
   }
-plots <- lapply(plots_enrich, function(x){
-  x %>%
-  ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
-    geom_bar(stat = "identity", width = 0.05) + geom_point(size = 3) +
-    theme_minimal() +
-    theme(text = element_text(size = 10),
-          plot.title = element_text(hjust = (5 / nchar(results_list)) * 2), 
-          plot.margin = margin(t = 5, r = 50, b = 5, unit = "pt"), 
-          axis.text.y = element_text(size = 8)) +
-    coord_flip() +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") + 
-    theme_bw() +
-    labs(x = NULL, y = expression("Adjusted P value, Log"[10]*"")) +
-  facet_wrap(~.id, ncol = 4)
+  plots <- lapply(plots_enrich, function(x) {
+    x %>%
+      ggplot(aes(x = Term, y = -log10(Adjusted.P.value))) +
+      geom_bar(stat = "identity", width = 0.05) +
+      geom_point(size = 3) +
+      theme_minimal() +
+      theme(
+        text = element_text(size = 10),
+        plot.title = element_text(hjust = (5 / nchar(results_list)) * 2),
+        plot.margin = margin(t = 5, r = 50, b = 5, unit = "pt"),
+        axis.text.y = element_text(size = 8)
+      ) +
+      coord_flip() +
+      geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray") +
+      theme_bw() +
+      labs(x = NULL, y = expression("Adjusted P value, Log"[10] * "")) +
+      facet_wrap(~.id, ncol = 4)
   })
   return(plots)
 }
 
-# Plotting over-representation analyssi
+# Plotting over-representation analysis
 enrichment_plot_up <- plot_enrichment(enrichment_list_up)
 enrichment_plot_down <- plot_enrichment(enrichment_list_down)
 
-names(enrichment_plot_up) <- c("GO_Biological_Process_2021_up",
-                            "KEGG_2021_Human_up",
-                            "GO_Molecular_Function_2021_up") 
+names(enrichment_plot_up) <- c(
+  "GO_Biological_Process_2021_up",
+  "KEGG_2021_Human_up",
+  "GO_Molecular_Function_2021_up"
+)
 
-names(enrichment_plot_down) <- c("GO_Biological_Process_2021_down",
-                            "KEGG_2021_Human_down",
-                            "GO_Molecular_Function_2021_down") 
+names(enrichment_plot_down) <- c(
+  "GO_Biological_Process_2021_down",
+  "KEGG_2021_Human_down",
+  "GO_Molecular_Function_2021_down"
+)
 print(enrichment_plot_up)
 print(enrichment_plot_down)
- 
+```
 
+```{r, echo=FALSE, results='hide'}
 # function for saving op plots
-save_op_plots <- function(ea_plot_list){
-  lapply(names(ea_plot_list), function(x) 
-     ggsave(filename = paste0("../", figures.dir, x,"_EA.png"), 
-            height = 24, width = 16, 
-            plot = ea_plot_list[[x]]))
+save_op_plots <- function(ea_plot_list) {
+  lapply(names(ea_plot_list), function(x) {
+    ggsave(
+      filename = paste0("../", figures.dir, x, "_EA.png"),
+      height = 24, width = 16,
+      plot = ea_plot_list[[x]]
+    )
+  })
 }
 
 # saving enrichment plots to figure folder
 save_op_plots(enrichment_plot_up)
 save_op_plots(enrichment_plot_down)
-
 ```
 
-### Gene Set Enrichment Analysis with ClusterProfiler
+### Gene Set Enrichment Analysis
+
+GSEA looks for patterns of enriched genes which are related to each other. Compared with over-representation analysis this does not rely solely on DEGs. Therefore, this method is better when the differences in gene expression is smaller.
 
 #### Annotations
 
-```{r, message=F, warning=F}
-# SET THE DESIRED ORGANISM HERE
+```{r, results='hide'}
+# Set desired organim to homo sapiens
 organism <- "org.Hs.eg.db"
 # BiocManager::install(organism, character.only = TRUE)
 library(organism, character.only = TRUE)
@@ -631,87 +791,164 @@ library(organism, character.only = TRUE)
 #### Prepare Input
 
 ```{r}
-process_to_gsea <- function(x){
+process_to_gsea <- function(x) {
   original_gene_list <- x$log2FoldChange
   names(original_gene_list) <- rownames(x)
-  gene_list<-na.omit(original_gene_list)
+  gene_list <- na.omit(original_gene_list)
   gene_list <- sort(gene_list, decreasing = TRUE)
 }
 
 ls_processed <- lapply(results_list, process_to_gsea)
-
 ```
 
 #### Gene Set Enrichment
 
-```{r}
-list_gse <- lapply(ls_processed, function(x) GSEA(geneList=x, 
-            TERM2GENE = gmt,
-             minGSSize = 3, 
-             maxGSSize = 800, 
-            nPermSimple = 10000,
-             pvalueCutoff = 0.05, 
-             verbose = TRUE, 
-             pAdjustMethod = "fdr"))
-
-
+```{r, include=FALSE}
+list_gse <- lapply(ls_processed, function(x) {
+  GSEA(
+    geneList = x,
+    TERM2GENE = gmt,
+    minGSSize = 3,
+    maxGSSize = 800,
+    nPermSimple = 10000,
+    pvalueCutoff = 0.05,
+    verbose = TRUE,
+    pAdjustMethod = "fdr"
+  )
+})
 ```
-
 
 #### Ridgeplot
 
 Helpful to interpret up/down-regulated pathways.
 
-```{r fig.width=18, fig.height=12}
-# try also to plot as a heatmap for all the group comparisons
+```{r, fig.width=18, fig.height=12, fig.keep=10:17}
+# Optional: uncomment line below to remove all comparisons except naive vs conv at each timepoint
+# list_gse <- list_gse[10:17]
 
-ridgeplotting <- function(x){
+
+ridgeplotting <- function(x) {
   list_gse[[x]] %>%
     ridgeplot(fill = "enrichmentScore") +
     viridis::scale_fill_viridis(option = "turbo") +
     ggtitle(x) +
-    cowplot::theme_cowplot(font_size = 6, 
-                         line_size = 1.5, 
-                         rel_small = 1.6, 
-                         rel_tiny = 1,
-                         font_family = "Arial",
-                         rel_large = 4) +
-  theme(legend.position = 'right',
-        legend.direction = 'vertical',
-        legend.key.size = unit(1, 'cm'),
-        legend.title = element_text(size = 16, face = "bold", family = "Arial"),
-        legend.text = element_text(size = 14),
-        axis.title = element_text(size = 35), 
-        axis.text.x  = element_text(size = 16),
-        axis.text.y =  element_text(size = 16)) +
-  scale_y_discrete()
+    cowplot::theme_cowplot(
+      font_size = 6,
+      line_size = 1.5,
+      rel_small = 1.6,
+      rel_tiny = 1,
+      font_family = "Arial",
+      rel_large = 4
+    ) +
+    theme(
+      legend.position = "right",
+      legend.direction = "vertical",
+      legend.key.size = unit(1, "cm"),
+      legend.title = element_text(size = 16, face = "bold", family = "Arial"),
+      legend.text = element_text(size = 14),
+      axis.title = element_text(size = 35),
+      axis.text.x = element_text(size = 16),
+      axis.text.y = element_text(size = 16)
+    ) +
+    scale_y_discrete()
 }
 
 ridgeplots <- lapply(names(list_gse), ridgeplotting)
 names(ridgeplots) <- names(list_gse)
 print(ridgeplots)
 
-lapply(names(ridgeplots), function(x) ggsave(filename = paste0("../", figures.dir, x,"_BTM_plot.png"), 
-                                         plot = ridgeplots[[x]], width = 16, height = 12))
 ```
 
-
-#### GSEA Plot  
-Traditional method for visualizing GSEA result.  
-  
-```{r fig.height=6, fig.width=8}
-# Use the `Gene Set` param for the index in the title, and as the value for geneSetId
-#gseaplot(gse, by = "all", title = gse$Description[55], geneSetID = 55)
-#head(gse, 100)
-
+```{r, echo=FALSE, results='hide'}
+# save ridge plots
+lapply(names(ridgeplots), function(x) {
+  ggsave(
+    filename = paste0("../", figures.dir, x, "_BTM_plot.png"),
+    plot = ridgeplots[[x]], width = 16, height = 12
+  )
+})
 ```
 
-### Visualization of DEGS
+#### Combined GSEA heatmap
+
+Using the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789).
+
+```{r, gsea_heatmap}
+my_palette <- colorRampPalette(c("#265891", "white", "#B80F20"))(n = 20)
+sel_list_gse <- list_gse[c(
+  "Naïve Dose 1 0-24 hours",
+  "Naïve Dose 2 0-24 hours",
+  "Naïve Dose 3 0-24 hours",
+  "Naïve Dose 3 0-48 hours",
+  "Conv Dose 1 0-24 hours",
+  "Conv Dose 2 0-24 hours",
+  "Conv Dose 3 0-24 hours",
+  "Conv Dose 3 0-48 hours"
+)]
+
+combined_gsea <- data.table::rbindlist(lapply(sel_list_gse, as.data.frame), idcol = TRUE) %>%
+  group_by(.id) %>%
+  arrange(desc(NES)) %>%
+  ungroup()
+
+to_heatmap <- combined_gsea %>%
+  select(.id, ID, NES) %>%
+  filter(NES > 2 | NES < -2, !grepl("TBA", ID)) %>%
+  tidyr::pivot_wider(values_from = NES, names_from = ID) %>%
+  mutate(across(where(anyNA), ~ tidyr::replace_na(., 0))) %>%
+  t()
+colnames(to_heatmap) <- to_heatmap[1, ]
+to_heatmap <- to_heatmap[-1, ]
+
+col_order <- c(
+  "Naïve Dose 1 0-24 hours",
+  "Conv Dose 1 0-24 hours",
+  "Naïve Dose 2 0-24 hours",
+  "Conv Dose 2 0-24 hours",
+  "Naïve Dose 3 0-24 hours",
+  "Conv Dose 3 0-24 hours",
+  "Naïve Dose 3 0-48 hours",
+  "Conv Dose 3 0-48 hours"
+)
+
+to_heatmap <- to_heatmap[, col_order]
+
+BTM_heatmap <- matrix(as.numeric(to_heatmap), ncol = ncol(to_heatmap)) %>%
+    pheatmap::pheatmap(
+      width = 6,
+      height = 20,
+      cellwidth = 20,
+      cellheight = 5,
+      cluster_rows = TRUE,
+      cluster_cols = FALSE,
+      clustering_method = "ward.D2",
+      angle_col = 45,
+      border_color = "black",
+      cutree_cols = 4,
+      color = my_palette,
+      labels_col = colnames(to_heatmap),
+      labels_row = rownames(to_heatmap),
+      treeheight_col = 1,
+      fontsize_row = 6,
+      fontsize_col = 8,
+      gaps_col = c(2, 4, 6)
+    )
+```
+
+```{r, echo=FALSE, results='hide'}
+# save BTM heatmap
+   ggsave(
+      filename = paste0("../", figures.dir,"BTM_heatmap.pdf"),
+      height = 8, width = 10,
+      plot = BTM_heatmap)
+```
+
 #### Venn Diagram of DEGs
 
-```{r venn_diagram}
-extract_degs_names <-  function(x){
-  subsetted <- results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol") %>%
+```{r, venn_diagram}
+extract_degs_names <- function(x) {
+  subsetted <- results_list_plot[[x]] %>%
+    tibble::rownames_to_column("gene_symbol") %>%
     filter(log2FoldChange > 1 & padj < 0.05) %>%
     select(gene_symbol, log2FoldChange)
   return(subsetted)
@@ -719,16 +956,10 @@ extract_degs_names <-  function(x){
 
 degs_names <- lapply(names(results_list_plot), extract_degs_names)
 names(degs_names) <- names(results_list_plot)
-to_venn <- list(conv = degs_names[["Conv 0-24 hours"]][[1]], 
-                naive = degs_names[["Naïve 0-24 hours"]][[1]])
+to_venn <- list(
+  conv = degs_names[["Conv 0-24 hours"]][[1]],
+  naive = degs_names[["Naïve 0-24 hours"]][[1]]
+)
 
 ggVennDiagram(to_venn, show_intersect = TRUE)
-```
-
-
-
-### Session info
-
-```{r}
-sessionInfo()
 ```
