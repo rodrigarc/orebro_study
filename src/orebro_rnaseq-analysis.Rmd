@@ -538,87 +538,74 @@ d3_48 <- compare_DEGs("48_dose3", "0_dose3", condition = "dose", dds = dds3)
 
 ### Volcano plots
 
-Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate \< 0.05 and log fold change greater than 1.(Only showing plot 10-17)
 
-```{r, warning=FALSE, fig.keep=10:17}
-results_list <- list(
-  base_pos_neg_d1,
-  base_pos_neg_d2,
-  base_pos_neg_d3,
-  base_pos_d1_d2,
-  base_pos_d1_d3,
-  base_pos_d2_d3,
-  base_neg_d1_d2,
-  base_neg_d1_d3,
-  base_neg_d2_d3,
-  neg_d1,
-  neg_d2,
-  neg_d3_24,
-  neg_d3_48,
-  pos_d1,
-  pos_d2,
-  pos_d3_24,
-  pos_d3_48,
-  pos,
-  neg,
-  d1,
-  d2,
-  d3_24,
-  d3_48
-)
+Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
 
-names(results_list) <- c(
-  "Baseline Dose 1 Conv vs Naïve",
-  "Baseline Dose 2 Conv vs Naïve",
-  "Baseline Dose 3 Conv vs Naïve",
-  "Baseline Conv Dose 1 and 2",
-  "Baseline Conv Dose 1 and 3",
-  "Baseline Conv Dose 2 and 3",
-  "Baseline Naïve Dose 1 and 2",
-  "Baseline Naïve Dose 1 and 3",
-  "Baseline Naïve Dose 2 and 3",
-  "Naïve Dose 1 0-24 hours",
-  "Naïve Dose 2 0-24 hours",
-  "Naïve Dose 3 0-24 hours",
-  "Naïve Dose 3 0-48 hours",
-  "Conv Dose 1 0-24 hours",
-  "Conv Dose 2 0-24 hours",
-  "Conv Dose 3 0-24 hours",
-  "Conv Dose 3 0-48 hours",
-  "Conv 0-24 hours",
-  "Naïve 0-24 hours",
-  "Dose 1 0-24 hours",
-  "Dose 2 0-24 hours",
-  "Dose 3 0-24 hours",
-  "Dose 3 0-48 hours"
-)
+```{r}
+results_list <- list(base_pos_neg_d1,
+                    base_pos_neg_d2,
+                    base_pos_neg_d3, 
+                    base_pos_d1_d2, 
+                    base_pos_d1_d3, 
+                    base_pos_d2_d3, 
+                    base_neg_d1_d2, 
+                    base_neg_d1_d3, 
+                    base_neg_d2_d3, 
+                    neg_d1,
+                    neg_d2, 
+                    neg_d3_24, 
+                    neg_d3_48, 
+                    pos_d1, 
+                    pos_d2, 
+                    pos_d3_24, 
+                    pos_d3_48, 
+                    pos, 
+                    neg, 
+                    d1, 
+                    d2, 
+                    d3_24, 
+                    d3_48)
+                     
+names(results_list) <- c("Baseline Dose 1 Conv vs Naïve", 
+                         "Baseline Dose 2 Conv vs Naïve", 
+                         "Baseline Dose 3 Conv vs Naïve", 
+                         "Baseline Conv Dose 1 and 2", 
+                         "Baseline Conv Dose 1 and 3", 
+                         "Baseline Conv Dose 2 and 3", 
+                         "Baseline Naïve Dose 1 and 2", 
+                         "Baseline Naïve Dose 1 and 3", 
+                         "Baseline Naïve Dose 2 and 3",
+                         "Naïve Dose 1 0-24 hours", 
+                         "Naïve Dose 2 0-24 hours", 
+                         "Naïve Dose 3 0-24 hours", 
+                         "Naïve Dose 3 0-48 hours", 
+                         "Conv Dose 1 0-24 hours", 
+                         "Conv Dose 2 0-24 hours", 
+                         "Conv Dose 3 0-24 hours", 
+                         "Conv Dose 3 0-48 hours", 
+                         "Conv 0-24 hours",
+                         "Naïve 0-24 hours", 
+                         "Dose 1 0-24 hours", 
+                         "Dose 2 0-24 hours",
+                         "Dose 3 0-24 hours",
+                         "Dose 3 0-48 hours") 
 
-# Optional: uncomment line below to remove all comparisons except naive vs conv at each timepoint
-# results_list <- results_list[10:17]
+    results_list_plot <- lapply(results_list, function(x) {
+  x <- x %>% mutate(test_padj = case_when(padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
+                                     padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
+                                     TRUE ~ "Not significant"),
+                    test_pvalue = case_when(pvalue < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
+                                     pvalue < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
+                                     TRUE ~ "Not significant"),
+                    )
+  })
+    
+# function to plot and save volcano plot
+volcano_plot <-  function(x){
+  subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 1 & pvalue < 0.05)
+  label_list <- c("RSAD2", "IFIT1", "CXCL10", "CMPK2", "GBP1P1", "IFI44L", "BATF2", "SIGLEC1", "IFI44", "NDUFS4", "MX1", "CXCL9", "FCGR1A", "FCGR1B", "CCL4")
+  label<- subsetted %>% filter(gene_symbol %in% label_list)
 
-# filter up- and downregulated plots
-results_list_plot <- lapply(results_list, function(x) {
-  x <- x %>% mutate(
-    test_padj = case_when(
-      padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
-      padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
-      TRUE ~ "Not significant"
-    ),
-    test_pvalue = case_when(
-      pvalue < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
-      pvalue < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
-      TRUE ~ "Not significant"
-    ),
-  )
-})
-
-# function to make volcano plots
-volcano_plot <- function(x) {
-  subsetted <- subset(
-    results_list_plot[[x]] %>%
-      tibble::rownames_to_column("gene_symbol"),
-    abs(log2FoldChange) >= 1 & pvalue < 0.05
-  )
   # count up regulated DEGs
   deg_number_up <- subset(
     results_list_plot[[x]] %>%
@@ -634,54 +621,45 @@ volcano_plot <- function(x) {
   ) %>%
     nrow()
 
-  results_list_plot[[x]] %>%
-    ggplot(aes(x = log2FoldChange, y = -log10(pvalue))) +
-    geom_point(aes(colour = test_pvalue), size = 3, alpha = 0.3) +
-    scale_color_manual(values = c(
-      "Down regulated" = "blue",
-      "Not significant" = "grey80",
-      "Up regulated" = "red"
-    )) +
-    xlab(expression("Fold Change (Log"[2] * ")")) +
-    ylab(expression("-Log"[10] * "(p-value)")) +
-    labs(x = NULL, y = NULL) +
-    geom_vline(xintercept = c(-1), linetype = "dotted", size = 1) +
-    geom_vline(xintercept = c(1), linetype = "dotted", size = 1) +
-    geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
-    # geom_label_repel(data = subsetted, 
-    # aes(log2FoldChange,-log10(pvalue),label= gene_symbol),
-    # max.overlaps = 10) +
-    xlim(-2, 6) +
-    ylim(0, 20) +
-    ggtitle(x) +
-    annotate(
-      geom = "text", colour = "red", size = 10, x = 4, y = 10, hjust = 0,
-      label = paste0(deg_number_up)
-    ) +
-    annotate(
-      geom = "text", colour = "blue", size = 10, x = -2, y = 10, hjust = 0,
-      label = paste0(deg_number_down)
-    ) +
-    ggprism::theme_prism() +
-    theme(axis.ticks = element_line(size = .5), legend.position = "none")
-}
+  
+  results_list_plot[[x]] %>% 
+  ggplot(aes(x = log2FoldChange, y = -log10(pvalue))) +
+  geom_point(aes(colour = test_pvalue), size = 3, alpha = 0.3) +
+  scale_color_manual(values = c("Down regulated"="blue", "Not significant" ="grey80", "Up regulated"="red")) +
+  xlab(expression("Fold Change (Log"[2]*")")) +
+  ylab(expression("-Log"[10]*"(p-value)")) +
+  labs(x = NULL, y = NULL) +
+  geom_vline(xintercept = c(-1), linetype = "dotted", size = 1) + 
+  geom_vline(xintercept = c(1), linetype = "dotted", size = 1) + 
+  geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
+ geom_label_repel(data = label, aes(log2FoldChange,-log10(pvalue),label= gene_symbol)) +
+ xlim(-2,6) +
+ ylim(0,20) +
+  ggtitle(x) +  
+  annotate(geom='text', colour = "red", size = 10, x= 4, y=10, hjust=0, label=paste0(deg_number_up)) +
+  annotate(geom='text', colour = "blue", size = 10, x= -2, y= 10, hjust=0, label=paste0(deg_number_down)) +
+ ggprism::theme_prism() +
+  theme(axis.ticks = element_line(size = .5),legend.position = 'none' ) 
+  }
+
 
 volcano_plots <- lapply(names(results_list_plot), volcano_plot)
 names(volcano_plots) <- names(results_list_plot)
 volcano_plots
 ```
 
+
 ```{r, echo=FALSE, results='hide'}
 # save volcano plots
 lapply(names(volcano_plots), function(x) {
   ggsave(
-    filename = paste0("../", figures.dir, x, "_volcano_plot.png"), 
+    filename = paste0("../", figures.dir, x, "_volcano_plot.pdf"), 
     width = 7, height = 7,
     plot = volcano_plots[[x]]
   )
 })
-```
 
+```
 ### Enrichment analysis
 
 Selecting two different databases for search for enrichment analysis. The databases selected were "GO_Biological_Process_2021" and "KEGG_2021_Human".
