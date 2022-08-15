@@ -1,0 +1,38 @@
+channels:
+  - conda-forge
+  - bioconda
+  - R
+  - defaults
+  - pwwang
+dependencies:
+  - r-base=4.1.3
+  - r-data.table
+  - r-kableExtra
+  - r-forcats
+    # - r-caret
+    # - r-c50
+  - r-mgsub
+  - bioconductor-deseq2
+  - r-pheatmap
+  - r-ggplot2
+  - r-ggrepel
+  - r-rcolorbrewer
+  - bioconductor-limma
+  - bioconductor-edger
+  - r-enrichr
+  - r-gridextra
+  - r-stringr
+    # - r-ggvenndiagram
+  - r-dplyr
+  - bioconductor-ensembldb
+  - bioconductor-ensdb.hsapiens.v86
+  - r-factoextra
+  - r-rafalib
+  - r-plotly
+  - r-tibble
+  - r-devtools
+  - bioconductor-clusterprofiler
+  - bioconductor-enrichplot
+  - bioconductor-pathview
+  - r-ggprism
+  - r-rmarkdown
