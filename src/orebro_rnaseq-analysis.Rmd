@@ -539,7 +539,7 @@ d3_48 <- compare_DEGs("48_dose3", "0_dose3", condition = "dose", dds = dds3)
 
 Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
 
-```{r}
+```{r, fig.width=18, fig.height=12, fig.keep=10:17}
 results_list <- list(base_pos_neg_d1,
                     base_pos_neg_d2,
                     base_pos_neg_d3, 
@@ -598,7 +598,7 @@ names(results_list) <- c("Baseline Dose 1 Conv vs Naïve",
                     )
   })
     
-# function to plot and save volcano plot
+# function to plot volcano plots
 volcano_plot <-  function(x){
   subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 1 & pvalue < 0.05)
   label_list <- c("RSAD2", "IFIT1", "CXCL10", "CMPK2", "GBP1P1", "IFI44L", "BATF2", "SIGLEC1", "IFI44", "NDUFS4", "MX1", "CXCL9", "FCGR1A", "FCGR1B", "CCL4")
