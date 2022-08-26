@@ -539,7 +539,7 @@ d3_48 <- compare_DEGs("48_dose3", "0_dose3", condition = "dose", dds = dds3)
 
 Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
 
-```{r}
+```{r, fig.width=18, fig.height=12, fig.keep=10:17}
 results_list <- list(base_pos_neg_d1,
                     base_pos_neg_d2,
                     base_pos_neg_d3, 
@@ -598,7 +598,7 @@ names(results_list) <- c("Baseline Dose 1 Conv vs Naïve",
                     )
   })
     
-# function to plot and save volcano plot
+# function to plot volcano plots
 volcano_plot <-  function(x){
   subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 1 & pvalue < 0.05)
   label_list <- c("RSAD2", "IFIT1", "CXCL10", "CMPK2", "GBP1P1", "IFI44L", "BATF2", "SIGLEC1", "IFI44", "NDUFS4", "MX1", "CXCL9", "FCGR1A", "FCGR1B", "CCL4")
@@ -944,20 +944,20 @@ BTM_heatmap <- matrix(as.numeric(to_heatmap), ncol = ncol(to_heatmap)) %>%
 #### Venn Diagram of DEGs
 
 ```{r, venn_diagram}
-extract_degs_names <- function(x) {
-  subsetted <- results_list_plot[[x]] %>%
-    tibble::rownames_to_column("gene_symbol") %>%
-    filter(log2FoldChange > 1 & padj < 0.05) %>%
-    select(gene_symbol, log2FoldChange)
-  return(subsetted)
-}
+#extract_degs_names <- function(x) {
+#  subsetted <- results_list_plot[[x]] %>%
+#    tibble::rownames_to_column("gene_symbol") %>%
+#    filter(log2FoldChange > 1 & padj < 0.05) %>%
+#    select(gene_symbol, log2FoldChange)
+#  return(subsetted)
+#}
+#
+#degs_names <- lapply(names(results_list_plot), extract_degs_names)
+#names(degs_names) <- names(results_list_plot)
+#to_venn <- list(
+#  conv = degs_names[["Conv 0-24 hours"]][[1]],
+#  naive = degs_names[["Naïve 0-24 hours"]][[1]]
+#)
 
-degs_names <- lapply(names(results_list_plot), extract_degs_names)
-names(degs_names) <- names(results_list_plot)
-to_venn <- list(
-  conv = degs_names[["Conv 0-24 hours"]][[1]],
-  naive = degs_names[["Naïve 0-24 hours"]][[1]]
-)
-
-ggVennDiagram(to_venn, show_intersect = TRUE)
+#ggVennDiagram(to_venn, show_intersect = TRUE)
 ```
