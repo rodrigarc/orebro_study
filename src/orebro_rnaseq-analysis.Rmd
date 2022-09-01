@@ -101,6 +101,10 @@ counts_raw_2 <- data.table::fread("../data/proces-data_core-facility/3rd_subread
 # Join raw count data frames
 counts_raw <- left_join(counts_raw_1, counts_raw_2, by = "Geneid")
 
+# Remove datasets not used and their memory allocation
+rm(counts_raw_1, counts_raw_2)
+gc()
+
 # Rename genes based on Emsembl annotation
 edb <- EnsDb.Hsapiens.v86
 edb_genes <- genes(edb) %>% as.data.frame()
