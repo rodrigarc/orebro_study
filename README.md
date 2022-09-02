@@ -16,8 +16,8 @@
 
 - Create a new Conda environment and install the dependencies into it:
 ```
-      mamba env create -n rnaseq_analysis -f environment.yml
+      mamba env create -n OrebroEnv -f environment.yml
 ```
 - Activate the environment
 
-      conda activate rnaseq_analysis
+      conda activate OrebroEnv
