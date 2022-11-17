@@ -56,40 +56,32 @@ library(caret)
 ```
 
 
-## Download and load data
+## Load and wrangle raw counts
 
-```{r}
-# Reading data
-counts_raw <- data.table::fread("../data/proces-data_core-facility/subreadCounts_hg38ens_minus_frag.txt", header = TRUE, sep = "\t") %>%  as.data.frame()
+```{r, results='hide'}
+# Load raw counts
+counts_raw <- data.table::fread("../data/processed_data_nfcore/salmon/salmon.merged.gene_counts.tsv",
+                                  header = TRUE, sep = "\t") %>% 
+  as.data.frame() %>%
+  select(-gene_id)
 
-sampleTable <- read.table("../data/metadata/sample_metadata.csv", sep = ",", header = TRUE) %>%
-  mutate(dose = as.factor(plyr::mapvalues(visit, from = c(1,2,4,5), to = c("0_dose1","24_dose1","0_dose2","24_dose2"))),
-         group = as.factor(group))
 
-# Remove incomplete sample
-sampleTable<-subset(sampleTable, sample_ID!="P22761_1037_S37")
+colnames(counts_raw) <- sub("_L001|_L002", "",colnames(counts_raw))
+# Aggregate and sum up genes with same gene symbol (basically non-coding RNAs or ribosomic)
+counts_raw <- aggregate(counts_raw[, -1], 
+                        list(gene_name = counts_raw[, 1]), 
+                        FUN = sum)
 
-# Renaming genes based on emsembl annotation
-edb <- EnsDb.Hsapiens.v86
-edb_genes <- genes(edb) %>% as.data.frame()
-
-counts_raw <- counts_raw %>%
-  dplyr::select(-c(Chr, Start, End, Strand, Length)) %>%
-  dplyr::mutate(Geneid = plyr::mapvalues(x = counts_raw$Geneid, from = edb_genes$gene_id, to = edb_genes$symbol, warn_missing = FALSE))
-
-# Aggregate and sum up genes with same gene symbol, which were basically non-coding RNAs
-counts_raw <- aggregate(counts_raw[,-1], list(Geneid=counts_raw[,1]), FUN = sum)
-rownames(counts_raw) <- counts_raw$Geneid
-counts_raw <- dplyr::select(counts_raw, -c(Geneid))
+# Change row names to gene names
+rownames(counts_raw) <- counts_raw$gene_name
+counts_raw <- dplyr::select(counts_raw, -c(gene_name))
 
 # Read antibody data
-
 antibody_data <- read.csv("../data/antibody_data/2022-04-26_antibody-binding-avidity.csv")
 
 # Load BTM modules
 gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
 
-# Load normalized transcripts per million
 
 ```
 
@@ -99,10 +91,57 @@ gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
 
 Matching metadata to countTable and plotting the raw counts for first visual inspection.
 
-```{r}
-# Synchronize count data with sample table
-counts_raw <- counts_raw[, pmatch(sampleTable$sample_ID, colnames(counts_raw))]
+```{r, results='hide'}
+# Load sample metadata
+sampleTable <- read.table("../data/metadata/sample_metadata.csv", 
+                          sep = ",", header = TRUE) %>%
+  dplyr::select(-c(age, sex))
+
+# Load patient metadata
+patient_metadata <- read.table("../data/metadata/patient_metadata.csv", 
+                               sep = ",", header = TRUE)
+
+# Join sample and patient metadata
+sampleTable <- sampleTable %>% left_join(patient_metadata, by = "subject_ID")
+
+# Change visits to dose and time point...
+sampleTable <- sampleTable %>%
+  mutate(
+    dose = as.factor(plyr::mapvalues(visit,
+      from = c(1, 2, 4, 5, 10, 11, 12),
+      to   = c("0_dose1", "24_dose1", "0_dose2", "24_dose2", "0_dose3", "24_dose3", "48_dose3")
+    )),
+    group = as.factor(group)
+  ) %>%
+  # ...(sex) 0 and 1 to male and female...
+  mutate(
+    sex = as.factor(plyr::mapvalues(sex,
+      from = c(0, 1),
+      to   = c("male", "female")
+    )),
+    group = as.factor(sex)
+  ) %>%
+  # ...(prior covid) 0 and 1 to neg and pos
+  mutate(
+    prior_covid19 = as.factor(plyr::mapvalues(prior_covid19,
+      from = c(0, 1),
+      to   = c("neg", "pos")
+    )),
+    group = as.factor(prior_covid19)
+  )
+
+# Remove 24dose_2 from subject 21 (missing 0dose_2)
+sampleTable <- subset(sampleTable, sample_ID != "P22761_1037_S37")
+
+# Remove one sample from subject 7 (sample replicate)
+sampleTable <- subset(sampleTable, sample_ID != "P26208_1060_S62")
+
+# Remove corresponding samples from count table
+counts_raw <- subset(counts_raw, select = -c(P26208_1060_S62, P22761_1037_S37))
+
+# Match count data with sample table
 colnames(counts_raw) <- sampleTable$sample_ID
+counts_raw <- counts_raw[, pmatch(sampleTable$sample_ID, colnames(counts_raw))]
 all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
 ```
 
@@ -111,7 +150,7 @@ Removing reads with the log2 of the counts per million (cpm) lower than 1.
 ```{r}
 
 #Filter low counts
-keep_genes <- rowSums( counts_raw > 5 ) >= 8
+keep_genes <- rowSums( counts_raw > .5 ) >= 10
 counts_filtered<- counts_raw[keep_genes,]
 sum(keep_genes)
 
@@ -125,21 +164,25 @@ sum(keep_genes)
 
 Generating the DESeq dataset.
 
-```{r}
-# prepare for DESeq
-sampleTable$conditions <- stringr::str_c(sampleTable$group, "_", sampleTable$dose )
-sampleTable$conditions <- factor(sampleTable$conditions)
-sampleTable$sex <- factor(sampleTable$sex)
-sampleTable$dose <- factor(sampleTable$dose)
-sampleTable$group <- factor(sampleTable$group)
+```{r, results='hide'}
+# Prepare for DESeq by creating new variables and factorizing 
+sampleTable <- sampleTable %>%
+  mutate(
+    conditions = paste0(sampleTable$group, "_", sampleTable$dose),
+    time = gsub(".{6}$", "", conditions),
+    conditions = factor(conditions),
+    time = factor(time),
+    sex = factor(sex),
+    dose = factor(dose),
+    group = factor(group)
+  )
 
-sampleTable$time <- sampleTable$conditions  
-sampleTable$time <- gsub('.{6}$', '', sampleTable$time)
-sampleTable$time <- factor(sampleTable$time)
-# create 3 DESeq object
-dds1 <- DESeqDataSetFromMatrix(countData = counts_filtered,
-                              colData = as.data.frame(sampleTable),
-                              design = ~  sex + age + conditions)
+# create 3 DESeq objects comparing against conditions, time and dose
+dds1 <- DESeqDataSetFromMatrix(
+  countData = round(counts_filtered),
+  colData = as.data.frame(sampleTable),
+  design = ~ sex + age + conditions
+)
 
 # Normalize with variance stabilizing transformation for later PCA and heatmap
 counts_vst_normalized <- vst(dds1, blind = TRUE)
@@ -191,18 +234,15 @@ print(Heatmap)
 # Run the DESeq2 analysis
 dds1 <-  estimateSizeFactors(dds1)
 
-edb_gene_length <- edb_genes %>%
-  mutate(gene_length = end - start) %>%
-  select(symbol, gene_length)
 counts_vst <- assay(vst(dds1, blind = FALSE))
 
-rpkm_filtered <- edgeR::rpkm(counts_vst, gene.length = edb_gene_length[edb_gene_length$symbol %in% rownames(counts_filtered),]$gene_length)
+counts_filtered_vst <- counts_vst[, pmatch(sampleTable$sample_ID, colnames(counts_vst))]
+#colnames(rpkm_filtered) <- sampleTable$sample_ID
+counts_filtered_vst <- counts_filtered_vst[rowSums(counts_filtered_vst > 5) >= 32,]
 
-rpkm_filtered <- rpkm_filtered[, pmatch(sampleTable$sample_ID, colnames(rpkm_filtered))]
-colnames(rpkm_filtered) <- sampleTable$sample_ID
-all(rownames(sampleTable$sample_ID) == colnames(rpkm_filtered))
+all(rownames(sampleTable$sample_ID) == colnames(counts_filtered_vst))
 
-colnames(rpkm_filtered) <- plyr::mapvalues(colnames(rpkm_filtered), from = sampleTable$sample_ID, to = paste(sampleTable$subject_ID, sampleTable$dose,sep="_"))
+colnames(counts_filtered_vst) <- plyr::mapvalues(colnames(counts_filtered_vst), from = sampleTable$sample_ID, to = paste(sampleTable$subject_ID, sampleTable$dose,sep="_"))
 
 sampleTable <- sampleTable %>% mutate(ID_time_dose = paste(subject_ID, dose, sep = "_"))
 rownames(sampleTable) <- sampleTable$ID_time_dose
@@ -213,10 +253,10 @@ rownames(sampleTable) <- sampleTable$ID_time_dose
 ## Pick specific genes for plotting
 
 ```{r plot_genes_of_interest}
-rpkm_plot <- rpkm_filtered %>% 
+rpkm_plot <- counts_filtered_vst %>% 
   as.data.frame() %>%
   tibble::rownames_to_column("gene_symbol") %>%
-  tidyr::pivot_longer(!gene_symbol, values_to = "RPKM") %>%
+  tidyr::pivot_longer(!gene_symbol, values_to = "counts") %>%
   dplyr::rename(ID_time_dose = name) %>%
   full_join(sampleTable, by = "ID_time_dose") %>%
   mutate(conditions = factor(conditions, 
@@ -224,13 +264,15 @@ rpkm_plot <- rpkm_filtered %>%
                                         "Neg_0_dose2", "Neg_24_dose2", 
                                         "Pos_0_dose1", "Pos_24_dose1", 
                                         "Pos_0_dose2", "Pos_24_dose2"),
-                             ordered = TRUE)) 
+                             ordered = TRUE)) %>%
+  filter(!grepl("dose3", dose))
 ```
+
 ## Fold-change from normalized data
 
 ```{r fold_change}
 set.seed(140)
-to_loop <- unique(sub( "_.*","",colnames(rpkm_filtered)))
+to_loop <- unique(sub( "_.*","",colnames(counts_filtered_vst)))
 
 df <- list()
 for (column in to_loop){
@@ -239,33 +281,42 @@ for (column in to_loop){
   pattern_24_dose1 <- paste(column, "24_dose1",sep="_")
   pattern_0_dose2 <- paste(column, "0_dose2",sep="_")
   pattern_24_dose2 <- paste(column, "24_dose2",sep="_")
+  pattern_0_dose3 <- paste(column, "0_dose3",sep="_")
+  pattern_24_dose3 <- paste(column, "24_dose3",sep="_")
+  pattern_48_dose3 <- paste(column, "48_dose3",sep="_")
   
   if(column == "222-21"){
-     df[[column]] <- data.frame(genes = rownames(rpkm_filtered),
-                                FC_dose1 = rpkm_filtered[,pattern_24_dose1]/rpkm_filtered[,pattern_0_dose1],
+     df[[column]] <- data.frame(genes = rownames(counts_filtered_vst),
+                                FC_dose1 = counts_filtered_vst[,pattern_24_dose1]/counts_filtered_vst[,pattern_0_dose1],
                                 FC_dose2 = NA)
+  }else if(!pattern_0_dose3 %in% colnames(counts_filtered_vst)){
+    df[[column]] <- data.frame(genes = rownames(counts_filtered_vst),
+                                FC_dose1 = counts_filtered_vst[,pattern_24_dose1]/counts_filtered_vst[,pattern_0_dose1],
+                                FC_dose2 = counts_filtered_vst[,pattern_24_dose2]/counts_filtered_vst[,pattern_0_dose2])
   }else{
-     df[[column]] <- data.frame(genes = rownames(rpkm_filtered),
-                                FC_dose1 = rpkm_filtered[,pattern_24_dose1]/rpkm_filtered[,pattern_0_dose1],
-                                FC_dose2 = rpkm_filtered[,pattern_24_dose2]/rpkm_filtered[,pattern_0_dose2])
+     df[[column]] <- data.frame(genes = rownames(counts_filtered_vst),
+                                FC_dose1 = counts_filtered_vst[,pattern_24_dose1]/counts_filtered_vst[,pattern_0_dose1],
+                                FC_dose2 = counts_filtered_vst[,pattern_24_dose2]/counts_filtered_vst[,pattern_0_dose2],
+                                FC_dose3 =  counts_filtered_vst[,pattern_24_dose3]/counts_filtered_vst[,pattern_0_dose3],
+                                FC_dose3_48 = counts_filtered_vst[,pattern_48_dose3]/counts_filtered_vst[,pattern_0_dose3])
   }
 }
   
-fold_changes <- data.table::rbindlist(df, idcol = TRUE) %>%
+fold_changes <- data.table::rbindlist(df, idcol = TRUE, fill = TRUE) %>%
   dplyr::rename(sample_ID = .id) %>%
   tidyr::pivot_wider(names_from = sample_ID,
-                     values_from = c(FC_dose1,FC_dose2)) %>%
+                     values_from = c(FC_dose1,FC_dose2, FC_dose3, FC_dose3_48)) %>%
   as.data.frame()
 
 fold_changes <- data.frame(fold_changes, row.names = 1) %>%
-  select(-19) %>%
+  janitor::remove_empty(which = "cols") %>%
   as.matrix()
 # Log normalization
 fold_changes <- log2(fold_changes)
 # Z-score normalization and centering
 fold_changes <- t(scale(t(fold_changes)))
 fold_changes <- fold_changes[!is.infinite(rowSums(fold_changes)),]
-fold_changes <- fold_changes[is.finite(rowSums(fold_changes)),]
+#fold_changes <- fold_changes[is.finite(rowSums(fold_changes)),]
 
 metadata_2 <- sampleTable %>%
   mutate(heatmap_ID = paste0("FC", gsub("0|24","",dose),"_", gsub("-",".", subject_ID)),
@@ -276,9 +327,88 @@ rownames(metadata_2) <- metadata_2$heatmap_ID
 
 ```
 
+## Network analysis of genes highly correlated to Spike fold change
+
+```{r}
+
+corr_fold_changes <- fold_changes %>% 
+  t()
+
+## Compare only specific_dose
+#corr_fold_changes <- corr_fold_changes[grep("dose3",rownames(corr_fold_changes)),]
+
+corr_fold_changes <- corr_fold_changes[,-grep("ENSG", colnames(corr_fold_changes))]
+
+corr_val_pfizer <- cor(corr_fold_changes[,-grep("vaccine", colnames(corr_fold_changes))],
+    corr_fold_changes[,grep("vaccine", colnames(corr_fold_changes), value = T)], method = "pearson")
+
+#corr_val_pfizer <- psych::corr.test(corr_fold_changes[,-grep("vaccine", colnames(corr_fold_changes))],
+#    corr_fold_changes[,grep("vaccine", colnames(corr_fold_changes), value = T)], method = "pearson")
+
+#psych::corPlot(corr_val_pfizer)
+
+corr_val_pfizer_filt <- corr_val_pfizer[abs(corr_val_pfizer) > .4,]
+pos_corr <- sort(corr_val_pfizer_filt[corr_val_pfizer_filt > 0], decreasing = TRUE)
+neg_corr <- sort(corr_val_pfizer_filt[corr_val_pfizer_filt < 0], decreasing = TRUE)
+names(pos_corr)
+names(neg_corr)
+
+```
+ 
+### Processing correlation
+
+Genes correlated correlated to spike protein levels in blood (>.4)
+
+```{r}
+process_to_gsea <- function(x, decreasing = TRUE) {
+  if(is.matrix(x)){
+    original_gene_list <- as.numeric(x)
+    names(original_gene_list) <- rownames(x)
+    gene_list <- na.omit(original_gene_list)
+    gene_list <- sort(gene_list, decreasing = decreasing)
+  } else {
+    original_gene_list <- as.numeric(x)
+    names(original_gene_list) <- names(x)
+    gene_list <- na.omit(original_gene_list)
+    gene_list <- sort(gene_list, decreasing = decreasing)
+}}
+
+pos_list <- process_to_gsea(pos_corr)
+neg_list <- process_to_gsea(neg_corr, decreasing = FALSE)
+all_list <- process_to_gsea(corr_val_pfizer_filt)
+gene_list <- process_to_gsea(corr_val_pfizer)
+
+
+```
+
+### Overrepresentation analysis of genes correlated to spike protein in serum
+
+```{r plot_enrichemnt}
+# Set desired organism to homo sapiens
+organism <- "org.Hs.eg.db"
+# BiocManager::install(organism, character.only = TRUE)
+library(organism, character.only = TRUE)
+
+
+go_enrich <- clusterProfiler::enrichGO(gene = names(all_list),
+                      universe = names(gene_list),
+                      OrgDb = organism, 
+                      keyType = 'SYMBOL',
+                      ont = "BP",
+                      pvalueCutoff = 0.05, 
+                      qvalueCutoff = 0.10)
+
+clusterProfiler::dotplot(go_enrich)
+cnetplot(go_enrich, categorySize="pvalue", foldChange=gene_list)
+
+ggsave(paste0("../",result.dir,"network_analysis_correlated_genes_spike.pdf"),
+         width =8,height = 8, dpi = 300)
+```
+
+
 ```{r plot_pca}
 #Sample PCA
-pca <- t(fold_changes)
+pca <- fold_changes
 order_names <- rownames(pca) 
 pca <- FactoMineR::PCA(pca, graph = FALSE)
 metadata <- metadata_2[match(order_names, metadata_2$heatmap_ID),]
@@ -374,6 +504,7 @@ data.table::fwrite(fold_changes_ab_data, "../data/machine_learning_dataset/fold_
 
 #fold_changes_ab_data <- fold_changes_ab_data[complete.cases(fold_changes_ab_data),]
 df <- list()
+genes_coef <- list()
 for(doses in c("_dose1", "_dose2")){
   vector_sel <- c("sample_ID","subject_ID","group",variable_to_predict,"avidity_classes",grep(doses, colnames(fold_changes_ab_data), value = TRUE))
   fold_changes_ab_data_dt <- data.table::as.data.table(fold_changes_ab_data)[,..vector_sel]
@@ -390,14 +521,15 @@ for(doses in c("_dose1", "_dose2")){
   set.seed(140)
   trainIndex <- createDataPartition(seq_len(nrow(fold_changes_ab_data_dt)), p = .8,
                                     list = FALSE,
-                                    times = 1)
-    if(doses == "_dose1"){
-      print("Select training data for dose 1")
-    trainIndex <- c(1,2,3,4,6,7,8,10)
-    }else{
-      print("Select training data for dose 2, thus removing incomplete samples")
-      trainIndex <- c(1,2,3,4,6,7,8)
-    }
+                                    times = 1,
+                                    group = as.integer(fold_changes_ab_data$group))
+ #   if(doses == "_dose1"){
+#      print("Select training data for dose 1")
+#    trainIndex <- c(1,2,3,4,6,7,8,10)
+#    }else{
+#      print("Select training data for dose 2, thus removing incomplete samples")
+#      trainIndex <- c(1,2,3,4,6,7,8)
+#    }
   trainingSet <- as.data.frame(fold_changes_ab_data_dt[ trainIndex,])
   testingSet <- as.data.frame(fold_changes_ab_data_dt[-trainIndex,])
   
@@ -428,8 +560,8 @@ for(doses in c("_dose1", "_dose2")){
     
   print(ggplot(df[[doses]],aes(x = true_value, y = predicted, color = dataset)) + geom_point(size = 3) + 
   labs(x = "True value\n(Log10)", y = "Predicted value \n (Log10)", dataset = "Dataset") +
-  #xlim(c(0,100)) +
-  #ylim(c(0,100)) +
+  xlim(c(3,6)) +
+  ylim(c(3,6)) +
   theme_bw() +
   ggsci::scale_color_npg() +
     labs(color = "") + 
