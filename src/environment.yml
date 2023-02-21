@@ -34,4 +34,3 @@ dependencies:
   - bioconductor-pathview=1.34.0
   - r-ggprism=1.0.3
   - r-rmarkdown=2.13
-  - r-ggridges
