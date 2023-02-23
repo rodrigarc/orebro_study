@@ -88,13 +88,21 @@ library(ggprism)
 ## Load and wrangle raw counts
 
 ```{r, results='hide'}
-# Load raw counts
-counts_raw <- data.table::fread("../data/processed_data_nfcore/salmon/salmon.merged.gene_counts.tsv",
+# Load raw counts 
+counts_raw_1 <- data.table::fread("../data/processed_data_nfcore/salmon/salmon.merged.gene_counts.tsv",
                                   header = TRUE, sep = "\t") %>% 
   as.data.frame() %>%
   select(-gene_id)
 
+#load batch 3 counts
+counts_raw_3 <- data.table::fread("../data/processed_data_nfcore/batch_3/salmon.merged.gene_counts.tsv",
+                                  header=TRUE, sep="\t") %>% 
+ as.data.frame() %>%
+  select(-gene_id)
 
+#merge dataframes
+counts_raw <- merge(counts_raw_1, counts_raw_3, by=c("gene_name"))
+  
 colnames(counts_raw) <- sub("_L001|_L002", "",colnames(counts_raw))
 # Aggregate and sum up genes with same gene symbol (basically non-coding RNAs or ribosomic)
 counts_raw <- aggregate(counts_raw[, -1], 
@@ -110,7 +118,7 @@ counts_raw <- dplyr::select(counts_raw, -c(gene_name))
 
 ```{r, results='hide'}
 # Load sample metadata
-sampleTable <- read.table("../data/metadata/sample_metadata.csv", 
+sampleTable <- read.table("../data/metadata/sample_metadata_2.csv", 
                           sep = ",", header = TRUE) %>%
   dplyr::select(-c(age, sex))
 
@@ -150,11 +158,14 @@ sampleTable <- sampleTable %>%
 # Remove 24dose_2 from subject 21 (missing 0dose_2)
 sampleTable <- subset(sampleTable, sample_ID != "P22761_1037_S37")
 
-# Remove one sample from subject 7 (sample replicate)
+# Remove two samples from subject 7 (sample replicate)
 sampleTable <- subset(sampleTable, sample_ID != "P26208_1060_S62")
+sampleTable <- subset(sampleTable, sample_ID != "P27910_1057_S1")
 
 # Remove corresponding samples from count table
-counts_raw <- subset(counts_raw, select = -c(P26208_1060_S62, P22761_1037_S37))
+counts_raw <- subset(counts_raw, select = -c(P27910_1057_S1,P26208_1060_S62,P22761_1037_S37))
+
+colnames <- as.data.frame(colnames(counts_raw_3))
 
 # Match count data with sample table
 colnames(counts_raw) <- sampleTable$sample_ID
