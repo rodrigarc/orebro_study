@@ -88,28 +88,42 @@ library(ggprism)
 ## Load and wrangle raw counts
 
 ```{r, results='hide'}
-# Load raw counts 
+# Load batch 1 raw counts 
 counts_raw_1 <- data.table::fread("../data/processed_data_nfcore/salmon/salmon.merged.gene_counts.tsv",
                                   header = TRUE, sep = "\t") %>% 
   as.data.frame() %>%
   select(-gene_id)
 
-#load batch 3 counts
+counts_raw_1_aggr <- aggregate(counts_raw_1[, -1], 
+                        list(gene_name = counts_raw_1[, 1]), 
+                        FUN = sum)
+
+#load batch 3 raw counts
 counts_raw_3 <- data.table::fread("../data/processed_data_nfcore/batch_3/salmon.merged.gene_counts.tsv",
                                   header=TRUE, sep="\t") %>% 
  as.data.frame() %>%
-  select(-gene_id)
+select(-gene_id)
 
-#merge dataframes
-counts_raw <- merge(counts_raw_1, counts_raw_3, by=c("gene_name"))
-  
+counts_raw_3_aggr <- aggregate(counts_raw_3[, -1], 
+                        list(gene_name = counts_raw_3[, 1]), 
+                        FUN = sum)
+
+#check rownames
+identical(rownames(counts_raw_3_aggr), rownames(counts_raw_1_aggr))
+
+#merge aggregated dataframes
+counts_raw <- left_join(counts_raw_1_aggr, counts_raw_3_aggr, by="gene_name")
+
 colnames(counts_raw) <- sub("_L001|_L002", "",colnames(counts_raw))
+
+
 # Aggregate and sum up genes with same gene symbol (basically non-coding RNAs or ribosomic)
-counts_raw <- aggregate(counts_raw[, -1], 
+counts_raw_aggr <- aggregate(counts_raw[, -1], 
                         list(gene_name = counts_raw[, 1]), 
                         FUN = sum)
 
-# Change row names to gene names
+
+#Change row names to gene names
 rownames(counts_raw) <- counts_raw$gene_name
 counts_raw <- dplyr::select(counts_raw, -c(gene_name))
 ```
@@ -164,8 +178,6 @@ sampleTable <- subset(sampleTable, sample_ID != "P27910_1057_S1")
 
 # Remove corresponding samples from count table
 counts_raw <- subset(counts_raw, select = -c(P27910_1057_S1,P26208_1060_S62,P22761_1037_S37))
-
-colnames <- as.data.frame(colnames(counts_raw_3))
 
 # Match count data with sample table
 colnames(counts_raw) <- sampleTable$sample_ID
@@ -305,7 +317,7 @@ hist(log2(as.matrix(counts_filtered) + 1),
 Generating three separate DESeq objects with different design parameters to allow for more comparisons. Controlling for age and sex.
 
 ```{r, results='hide'}
-# Remove vaccine/sars-cov-2 related genes
+#Remove vaccine/sars-cov-2 related genes
 
 # Prepare for DESeq by creating new variables and factorizing 
 sampleTable <- sampleTable %>%
@@ -315,6 +327,7 @@ sampleTable <- sampleTable %>%
     conditions = factor(conditions),
     time = factor(time),
     sex = factor(sex),
+    age = factor(age),
     dose = factor(dose),
     group = factor(group),
     batch = factor(batch)
@@ -379,8 +392,8 @@ boxplot(vst_matrix,
 # Sample heatmap
 sampleDist <- cor(vst_matrix, method = "spearman")
 
-Metadata <- data.frame(sampleTable$group, sampleTable$dose)
-names(Metadata) <- c("Group", "Dose")
+Metadata <- data.frame(sampleTable$group, sampleTable$dose, sampleTable$batch)
+names(Metadata) <- c("Group", "Dose", "batch")
 rownames(Metadata) <- sampleTable$sample_ID
 
 # Plot heatmap
@@ -421,10 +434,11 @@ pcaDF <- data.frame(
   PC2 = pcaRes$x[, 2],
   Group = sampleTable$group,
   Sample = sampleTable$sample_ID,
-  Dose = sampleTable$dose
+  Dose = sampleTable$dose,
+  Batch = sampleTable$batch
 )
 
-pcaPlot <- ggplot(pcaDF, mapping = aes(x = PC1, y = PC2, color = Group, label = Sample)) +
+pcaPlot <- ggplot(pcaDF, mapping = aes(x = PC1, y = PC2, color = Batch, label = Sample)) +
   geom_point(aes(shape = Group), size = 3) +
   labs(x = paste0("PC1 (", varExp[1], " %)"), 
        y = paste0("PC2 (", varExp[2], " %)")) +
@@ -473,6 +487,7 @@ var$contrib %>%
   dev.off()
 }
 ```
+
 
 ## Differential Gene Expression Analysis
 
@@ -685,6 +700,7 @@ enrichment_list_down <- lapply(results_list_plot, function(x) {
 })
 
 gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
+C7.gmt <- read.gmt("../data/blood_transcription_module/C7_vax.gmt")
 #gmt.hallmark <- read.gmt("../data/metabolic_transcriptionmodule/MgSig_Hallmark.gmt")
 #gmt.reactome <- read.gmt("../data/metabolic_transcriptionmodule/MSigDB_reactome.gmt")
 ```
@@ -817,12 +833,12 @@ list_gse <- lapply(ls_processed, function(x) {
 })
 ```
 
-#### Gene Set Enrichment MSigDb Reactome gene sets
+#### Gene Set Enrichment MSigDB C7 gene sets
 ```{r, include=FALSE}
-list_gse_reactome <- lapply(ls_processed, function(x) {
+list_gse_C7 <- lapply(ls_processed, function(x) {
   GSEA(
     geneList = x,
-    TERM2GENE = gmt.reactome,
+    TERM2GENE = C7.gmt,
     minGSSize = 3,
     maxGSSize = 800,
     nPermSimple = 10000,
@@ -832,7 +848,9 @@ list_gse_reactome <- lapply(ls_processed, function(x) {
   )
 })
 ```
-#### Ridgeplot
+
+
+#### Ridgeplots BTMs
 
 Helpful to interpret up/down-regulated pathways.
 
@@ -907,7 +925,7 @@ combined_gsea <- data.table::rbindlist(lapply(sel_list_gse, as.data.frame), idco
 
 to_heatmap <- combined_gsea %>%
   select(.id, ID, NES) %>%
-  filter(NES > 2 | NES < -2, !grepl("TBA", ID)) %>%
+  filter(NES > 2.5 | NES < -2.5, !grepl("TBA", ID)) %>%
   tidyr::pivot_wider(values_from = NES, names_from = ID) %>%
   mutate(across(where(anyNA), ~ tidyr::replace_na(., 0))) %>%
   t()
@@ -958,13 +976,51 @@ BTM_heatmap <- matrix(as.numeric(to_heatmap), ncol = ncol(to_heatmap)) %>%
       plot = BTM_heatmap)
 ```
 
+##C7 Ridgeplots
+```{r, fig.width=18, fig.height=12, fig.keep=10:17}
+#Optional: uncomment line below to remove all comparisons except naive vs conv at each timepoint
+#list_gse <- list_gse_hallmark[10:17]
+
+
+ridgeplotting <- function(x) {
+  list_gse_C7[[x]] %>%
+    ridgeplot(fill = "enrichmentScore") +
+    viridis::scale_fill_viridis(option = "turbo") +
+    ggtitle(x) +
+    cowplot::theme_cowplot(
+      font_size = 6,
+      line_size = 1.5,
+      rel_small = 1.6,
+      rel_tiny = 1,
+      font_family = "Arial",
+      rel_large = 4
+    ) +
+    theme(
+      legend.position = "right",
+      legend.direction = "vertical",
+      legend.key.size = unit(1, "cm"),
+      legend.title = element_text(size = 16, face = "bold", family = "Arial"),
+      legend.text = element_text(size = 14),
+      axis.title = element_text(size = 35),
+      axis.text.x = element_text(size = 16),
+      axis.text.y = element_text(size = 16)
+    ) +
+    scale_y_discrete()
+}
+
+ridgeplots_C7 <- lapply(names(list_gse), ridgeplotting)
+names(ridgeplots_C7) <- names(list_gse_C7)
+print(ridgeplots_C7)
+
+```
+
 #### Combined GSEA heatmap
 
-Using the MgSigDB Reactome modules 
+Using the MgSigDB C7 modules 
 
 ```{r, gsea_heatmap}
 my_palette <- colorRampPalette(c("#265891", "white", "#B80F20"))(n = 20)
-sel_list_gse_h <- list_gse_reactome[c(
+sel_list_gse_C7 <- list_gse_C7[c(
   "Naïve Dose 1 0-24 hours",
   "Naïve Dose 2 0-24 hours",
   "Naïve Dose 3 0-24 hours",
@@ -975,14 +1031,14 @@ sel_list_gse_h <- list_gse_reactome[c(
   "Conv Dose 3 0-48 hours"
 )]
 
-combined_gsea_h <- data.table::rbindlist(lapply(sel_list_gse_h, as.data.frame), idcol = TRUE) %>%
+combined_gsea_C7 <- data.table::rbindlist(lapply(sel_list_gse_C7, as.data.frame), idcol = TRUE) %>%
   group_by(.id) %>%
   arrange(desc(NES)) %>%
   ungroup()
 
-to_heatmap <- combined_gsea_h %>%
+to_heatmap <- combined_gsea_C7 %>%
   select(.id, ID, NES) %>%
-  filter(NES > 2 | NES < -2, !grepl("TBA", ID)) %>%
+  filter(NES > 3 | NES < -3, !grepl("TBA", ID)) %>%
   tidyr::pivot_wider(values_from = NES, names_from = ID) %>%
   mutate(across(where(anyNA), ~ tidyr::replace_na(., 0))) %>%
   t()
@@ -1002,9 +1058,9 @@ col_order <- c(
 
 to_heatmap <- to_heatmap[, col_order]
 
-Reactome_heatmap <- matrix(as.numeric(to_heatmap), ncol = ncol(to_heatmap)) %>%
+C7_heatmap <- matrix(as.numeric(to_heatmap), ncol = ncol(to_heatmap)) %>%
     pheatmap::pheatmap(
-      width = 100,
+      width = 400,
       height = 400,
       cellwidth = 20,
       cellheight = 5,
@@ -1025,30 +1081,30 @@ Reactome_heatmap <- matrix(as.numeric(to_heatmap), ncol = ncol(to_heatmap)) %>%
 ```
 
 ```{r, echo=FALSE, results='hide'}
-# save BTM heatmap
+# save C7 heatmap
    ggsave(
-      filename = paste0("../", figures.dir,"Reactome_heatmap.pdf"),
-      height = 8, width = 10,
-      plot = Reactome_heatmap)
+      filename = paste0("../", figures.dir,"C7_heatmap.pdf"),
+      height = 8, width = 20,
+      plot = C7_heatmap)
 ```
 
 #### Venn Diagram of DEGs
 
 ```{r, venn_diagram}
-#extract_degs_names <- function(x) {
-#  subsetted <- results_list_plot[[x]] %>%
-#    tibble::rownames_to_column("gene_symbol") %>%
-#    filter(log2FoldChange > 1 & padj < 0.05) %>%
-#    select(gene_symbol, log2FoldChange)
-#  return(subsetted)
-#}
-#
-#degs_names <- lapply(names(results_list_plot), extract_degs_names)
-#names(degs_names) <- names(results_list_plot)
-#to_venn <- list(
-#  conv = degs_names[["Conv 0-24 hours"]][[1]],
-#  naive = degs_names[["Naïve 0-24 hours"]][[1]]
-#)
+extract_degs_names <- function(x) {
+  subsetted <- results_list_plot[[x]] %>%
+    tibble::rownames_to_column("gene_symbol") %>%
+    filter(log2FoldChange > 1 & padj < 0.05) %>%
+    select(gene_symbol, log2FoldChange)
+  return(subsetted)
+}
+
+degs_names <- lapply(names(results_list_plot), extract_degs_names)
+names(degs_names) <- names(results_list_plot)
+to_venn <- list(
+  conv = degs_names[["Conv 0-24 hours"]][[1]],
+  naive = degs_names[["Naïve 0-24 hours"]][[1]]
+)
 
 degs_names <- lapply(names(results_list_plot), extract_degs_names)
 names(degs_names) <- names(results_list_plot)
@@ -1062,20 +1118,20 @@ to_venn_group <- list(
   naive = degs_names[["Naïve 0-24 hours"]][[1]]
 )
 
-ggVennDiagram(to_venn_group, show_intersect = TRUE)
+ggVennDiagram(to_venn, show_intersect = TRUE)
 ```
 
 ```{r, echo=FALSE, results='hide'}
 ggVennDiagram(to_venn_group, show_intersect = TRUE)
-# save vendiagram
+# save venn diagram
    ggsave(
-      filename = paste0("../", figures.dir,"ggvendiagram_dose.pdf"),
+      filename = paste0("../", figures.dir,"ggvenndiagram_dose.pdf"),
       height = 7, width = 7)
 
 ggVennDiagram(to_venn_doses, show_intersect = TRUE)
-# save vendiagram
+# save venn diagram
    ggsave(
-      filename = paste0("../", figures.dir,"ggvendiagram_dose.pdf"),
+      filename = paste0("../", figures.dir,"ggvenmdiagram_dose.pdf"),
       height = 7, width = 7)
 ```
 
@@ -1103,12 +1159,12 @@ enrich_plot_save <- function(x) {
            pvalueCutoff = 0.05,
            qvalueCutoff = 0.10)
 
-#go_enrich_doses <- enricher(gene = unique_dose2,
-                  #    OrgDb = organism, 
-                   #   keyType = 'SYMBOL',
-#                      TERM2GENE = gmt,
-#                     pvalueCutoff = 0.05, 
-#                      qvalueCutoff = 0.10)
+go_enrich_doses <- enricher(gene = unique_dose2,
+                     OrgDb = organism, 
+                      keyType = 'SYMBOL',
+                     TERM2GENE = gmt,
+                     pvalueCutoff = 0.05, 
+                      qvalueCutoff = 0.10)
 
   edox2 <- pairwise_termsim(go_enrich)
 
@@ -1128,8 +1184,13 @@ lapply(names(list_ema), enrich_plot_save)
 ## Vaccine detection in RNA-seq
 
 ```{r}
-tpm_gene <- data.table::fread("../data/processed_data_nfcore/salmon/salmon.merged.gene_tpm.tsv",  header = TRUE, sep = "\t") %>% 
+tpm_gene_1 <- data.table::fread("../data/processed_data_nfcore/salmon/salmon.merged.gene_tpm.tsv",  header = TRUE, sep = "\t") %>% 
   as.data.frame()
+
+tpm_gene_3 <- data.table::fread("../data/processed_data_nfcore/batch_3/salmon.merged.gene_tpm.tsv",  header = TRUE, sep = "\t") %>% 
+  as.data.frame()
+
+tpm_gene <- merge(tpm_gene_1, tpm_gene_3, by=c("gene_id"))
 
 colnames(tpm_gene) <- plyr::mapvalues(sub("_L001|_L002","",colnames(tpm_gene)), from = sampleTable$sample_ID, to = paste(sampleTable$subject_ID,sampleTable$dose, sampleTable$group, sep = "_")) 
 
