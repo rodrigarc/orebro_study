@@ -1,6 +1,6 @@
 ---
-title: "please insert your project title"
-author: "please insert your name"
+title: "MOFA Transcriptomics & Secretomics?"
+author: "Matt & Rodrigo"
 date: '`r format(Sys.Date(), "%Y-%m-%d")`'
 output: html_document
 abstract: Short project description.
@@ -28,11 +28,57 @@ options(stringsAsFactors = FALSE)
 
 ## Needed libraries
 ```{r libraries, message=FALSE}
+library(data.table)
+library(MOFA2)
+library(readxl)
+library(kableExtra)
+library(forcats)
+library(mgsub)
+library(DESeq2)
+library(pheatmap)
+library(ggplot2)
+library(ggrepel)
+library(RColorBrewer)
+library(limma)
+library(edgeR)
+library(enrichR)
+library(gridExtra)
+library(stringr)
+library(ggVennDiagram)
+library(ensembldb)
+library(EnsDb.Hsapiens.v86)
+library(factoextra)
+library(rafalib)
+library(plotly)
+library(tibble)
+library(devtools)
+library(clusterProfiler)
+library(enrichplot)
+library(pathview)
+library(ggprism)
+library(biomaRt)
+library(dplyr)
+library(tidyr)
+library(plyr)
+library(basilisk)
+library(SummarizedExperiment)
+library(DESeq2)
 
 ```
 
 ## Load data
 ```{r message=FALSE, warning=FALSE}
+
+
+# Read the transcript data
+transcript_data <- data.table::fread("../data/machine_learning_dataset/fold_changes_RPKMs.csv") 
+
+# Read the cytokine data
+cytokine_data <- data.table::fread("../data/cytokine_luminex/220406_luminex_edited_data_FC.csv")
+
+# Read the MOFA data set: transcript + cytokine
+combined_data <- data.table::fread("../data/mofa_test/combined_data.csv")  
+
 ```
 
 
@@ -41,6 +87,360 @@ options(stringsAsFactors = FALSE)
 renv::snapshot()
 ```
 
+## Metadata
+```{r}
+
+# Load sample metadata
+sampleTable <- read.table("../data/metadata/sample_metadata_3.csv", 
+                          sep = ",", header = TRUE) %>%
+  dplyr::select(-c(age, sex))
+
+# Load patient metadata
+patient_metadata <- read.table("../data/metadata/patient_metadata.csv", 
+                               sep = ",", header = TRUE)
+
+# Join sample and patient metadata
+sampleTable <- sampleTable %>% left_join(patient_metadata, by = "subject_ID")
+
+# Change visits to dose and time point...
+sampleTable <- sampleTable %>%
+  mutate(
+    dose = as.factor(plyr::mapvalues(visit,
+      from = c(1, 2, 4, 5, 10, 11, 12),
+      to   = c("0_dose1", "24_dose1", "0_dose2", "24_dose2", "0_dose3", "24_dose3", "48_dose3")
+    )),
+    group = as.factor(group)
+  ) %>%
+  # ...(sex) 0 and 1 to male and female...
+  mutate(
+    sex = as.factor(plyr::mapvalues(sex,
+      from = c(0, 1),
+      to   = c("male", "female")
+    )),
+    group = as.factor(sex)
+  ) %>%
+  # ...(prior covid) 0 and 1 to neg and pos
+  mutate(
+    prior_covid19 = as.factor(plyr::mapvalues(prior_covid19,
+      from = c(0, 1),
+      to   = c("neg", "pos")
+    )),
+    group = as.factor(prior_covid19)
+  )
+
+# Remove 24dose_2 from subject 21 (missing 0dose_2)
+sampleTable <- subset(sampleTable, sample_ID != "P22761_1037_S37")
+
+# Remove one sample from subject 7 (sample replicate)
+sampleTable <- subset(sampleTable, sample_ID != "P26208_1060_S62")
+
+# Remove individual that was not vaccinated in dose 3 and dose 2
+sampleTable <- subset(sampleTable, sample_ID != "P27910_1044_S44")
+sampleTable <- subset(sampleTable, sample_ID != "P27910_1031_S31")
+sampleTable <- subset(sampleTable, sample_ID != "P27910_1037_S37")
+
+# test which one to remove to evaluate effect of single samples
+#sampleTable <- sampleTable %>% filter(group != "pos" | batch != "third" | visit != 4 & visit != 5)
+#test <- sampleTable %>% filter(group == "pos", batch == "third", visit == 5 | visit == 4) 
+sampleTable <- sampleTable %>% filter(batch != "third")
+
+
+```
+
+### Principal Component Analysis (PCA)
+
+Dimensionality reduction for evaluating outliers and global sample clusters for both quality control but also for primary exploratory analysis.
+
+```{r}
+
+# PCA plot on mRNA data
+
+#preparing the data 
+dds <- transcript_data 
+dds <- select(dds, c(1,6:length(dds))) #selects the sample_ID and gene data, add '3' for group column data 
+
+#dds <- dds[order(dds$sample_ID), ]
+#dds <- select(dds, contains('_dose1')) #selecting FC data for first dose genes
+
+ads <- dds # creating a second object for transcript data analysis
+ads <- column_to_rownames(ads, var = "sample_ID")
+ads <- select(dds, contains('_dose1'))
+
+
+#dds <- as.data.frame(dds)
+
+
+#creating PCA results object
+pcaRes <- prcomp(t(ads)) #as table
+
+varExp <- round(summary(pcaRes)[[1]], digits = 2)
+
+# Scree plot, showing contribution of principal components in descending order
+pca.var <- pcaRes$sdev^2
+pca.var.per <- round(pca.var / sum(pca.var) * 100, 1)
+
+barplot(pca.var.per, main = "Scree Plot", 
+        xlab = "Principal Component", 
+        ylab = "Percent Variation")
+
+# Explore which variables contribute the most for each PC
+var <- get_pca_var(pcaRes)
+var$contrib %>%
+  as.data.frame() %>%
+  arrange(desc(Dim.1)) %>%
+  head() %>%
+  kableExtra::kable() %>%
+  kable_styling(bootstrap_options = "striped", full_width = FALSE)
+
+fviz_pca_ind(pcaRes,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+
+fviz_pca_biplot(pcaRes, select.ind = list(contrib = 10), 
+               select.var = list(contrib = 10),
+               ggtheme = theme_minimal())
+
+# Results for individuals
+res.ind <- get_pca_ind(pcaRes)
+res.ind$coord          # Coordinates
+res.ind$contrib        # Contributions to the PCs
+res.ind$cos2           # Quality of representation
+
+# Extract loadings and eigenvalues
+loadings <- pcaRes$rotation  # Loadings (variable loadings on PCs)
+eigenvalues <- pcaRes$sdev^2  # Eigenvalues (variance explained by each PC)
+
+# Calculate variable contributions to PC1
+contributions_to_PC1 <- (loadings[, 1]^2) * eigenvalues[1]
+
+# Sort variables by contribution to PC1 in descending order
+sorted_variables <- names(contributions_to_PC1)[order(-contributions_to_PC1)]
+
+# Select the top N variables contributing to PC1 (e.g., top 10)
+top_N <- 1000
+top_variables_PC1 <- sorted_variables[1:top_N]
+
+print(top_variables_PC1)
+
+# Calculate variable contributions to PC2
+contributions_to_PC2 <- (loadings[, 2]^2) * eigenvalues[2]
+
+# Sort variables by contribution to PC2 in descending order
+sorted_variables <- names(contributions_to_PC2)[order(-contributions_to_PC2)]
+
+# Select the top N variables contributing to PC2 (e.g., top 10)
+top_N <- 1000
+top_variables_PC2 <- sorted_variables[1:top_N]
+
+print(top_variables_PC2)
+
+##
+hist(as.matrix(ads)) 
+
+#filtering by fold change over 0.5 
+ads_filtered <- ads[sapply(ads, function(x) x > 0.5)]
+
+```
+
+##filtering the fold change data by variance
+```{r}
+
+ads <- as.data.frame.data.frame(dds)
+names <- ads$sample_ID
+ads <- column_to_rownames(ads, var = "sample_ID")
+ads <- dplyr::select(ads, contains('_dose1'))
+
+# Calculate the variance for each column
+variance_values <- apply(ads, 2, var, na.rm = TRUE)
+
+# Determine the number of columns to select (top 10%)
+percentage_to_select <- 0.1
+num_columns_to_select <- round(percentage_to_select * ncol(ads))
+
+# Sort columns by variance in descending order and select the top columns
+selected_columns <- names(sort(variance_values, decreasing = TRUE)[1:num_columns_to_select])
+
+# Subset the data frame to retain only the selected columns
+ads_filtered <- ads[, selected_columns, drop = FALSE]
+
+# Print the filtered data frame
+print(ads_filtered)
+
+ads_filtered$sample_ID <- namesx #this might need to be changed
+```
+
+
+# Data formatting
+```{r}
+#Preparing for the MOFA data table converting genes to unique row with fold change while preserving sample & group 
+trans_dtz <- pivot_longer(ads_filtered,
+    cols = !sample_ID,                      
+    names_to = "feature",
+    values_to = "value",
+  )
+
+trans_dtz <- plyr::rename(trans_dtz, c("sample_ID" = "sample")) #this one worked to rename them
+trans_dtz <- cbind(trans_dtz, view = "mRNA" )
+
+#cytokine data processing, choosing sample with timepoint
+time <- "V2"
+cyto_x <- cytokine_data %>% dplyr::filter(Timepoint %in% time)
+cyto_v <- select(cyto_x, c(1, 5:35)) #takes the subject ID and the cytokines
+
+cyto_hist <- select(cyto_v, c(2:32))
+hist(as.matrix(cyto_hist))
+
+#Resetting group values & names
+cyto_v[cyto_v == "Experienced"] <- "pos"
+cyto_v[cyto_v == "Naive"] <- "neg"
+cyto_v <- plyr::rename(cyto_v, c("subject_ID" = "sample"))
+cyto_v <- plyr::rename(cyto_v, c("Study group" = "group"))
+
+
+#Matches samples against against the transcript data
+names_match <- dds$sample_ID
+cyto_v <- cyto_v %>%
+  dplyr::filter(sample %in% names_match)
+
+
+#Preparing for the MOFA data table converting cytokine to unique row with fold change while preserving sample names
+cyto_dt <- pivot_longer(cyto_v,
+    cols = !sample,
+    names_to = "feature",
+    values_to = "value",
+  )
+
+#adding new view column
+cyto_dtv <- cbind(cyto_dt, view = "cytokine" )
+
+#moving group to match transcript data
+cyto_dtv <- relocate(cyto_dtv, group, .after = sample)
+
+#creates data table object for MOFA from both data sets 
+dt <- bind_rows(trans_dtz, cyto_dtv)
+
+```
+
+## MOFA integration
+```{r}
+
+# MOFA
+class(dt)
+dt[,group:=NULL]
+
+
+MOFAobject <- create_mofa(dt_filter)
+
+print(MOFAobject)
+
+plot_data_overview(MOFAobject)
+
+data_opts <- get_default_data_options(MOFAobject)
+head(data_opts)
+
+data_opts$scale_views = TRUE 
+
+model_opts <- get_default_model_options(MOFAobject)
+head(model_opts)
+
+model_opts$num_factors = 10
+model_opts$spikeslab_weights = TRUE
+
+train_opts <- get_default_training_options(MOFAobject)
+head(train_opts)
+
+train_opts$seed = 123
+train_opts$verbose = TRUE
+
+MOFAobject <- prepare_mofa(
+  object = MOFAobject,
+  data_options = data_opts,
+  model_options = model_opts,
+  training_options = train_opts
+)
+
+outfile = file.path(paste0("../",result.dir,"model.hdf5"))
+MOFAobject.trained <- run_mofa(MOFAobject, outfile, use_basilisk = TRUE)
+
+
+head(MOFAobject.trained@cache$variance_explained$r2_total[[1]]) # group 1
+
+plot_variance_explained(MOFAobject.trained, x="view", y="factor")
+
+model <- MOFAobject.trained
+
+plot_variance_explained(model, x="group", y="factor", plot_total = T)[[2]]
+plot_factors(model, 
+  factor = 1:3,
+  color_by = "group",
+
+)
+
+plot_weights(model,
+  view = "cytokine",
+  factor = 1,
+  nfeatures = 10,     # Number of features to highlight
+  scale = T,          # Scale weights from -1 to 1
+  abs = F             # Take the absolute value?
+)
+
+plot_data_heatmap(model,
+  view = "cytokine",         # view of interest
+  factor = 1,             # factor of interest
+  features = 20,          # number of features to plot (they are selected by weight)
+  
+  # extra arguments that are passed to the `pheatmap` function
+  cluster_rows = TRUE, cluster_cols = FALSE,
+  show_rownames = TRUE, show_colnames = FALSE
+)
+
+plot_weights(model,
+  view = "mRNA",
+  factor = 1,
+  nfeatures = 10,     # Number of features to highlight
+  scale = T,          # Scale weights from -1 to 1
+  abs = F             # Take the absolute value?
+)
+
+plot_data_heatmap(model,
+  view = "mRNA",         # view of interest
+  factor = 1,             # factor of interest
+  features = 20,          # number of features to plot (they are selected by weight)
+  
+  # extra arguments that are passed to the `pheatmap` function
+  cluster_rows = F, cluster_cols = TRUE,
+  show_rownames = TRUE, show_colnames = TRUE
+)
+
+plot_top_weights(model,
+  view = "mRNA",
+  factor = 1,
+  nfeatures = 10
+)
+
+plot_top_weights(model,
+  view = "cytokine",
+  factor = 1,
+  nfeatures = 10
+)
+
+#scatter plot using MOFA model
+plot_data_scatter(model,
+  view = "mRNA",         # view of interest
+  factor = 1,             # factor of interest
+  features = 10,           # number of features to plot (they are selected by weight)
+  add_lm = TRUE,          # add linear regression
+  color_by = "MCP-2"
+)
+
+ggplot()
+#trans_dtz: pull top 10 genes & make scatter plot, don't forget to scale...
+#cyto_dtv: find IP-10 & MCP-2 in to plot against top 10 genes 
+
+
+```
 
 ## SessionInfo
 ```{r}
