@@ -156,22 +156,24 @@ Dimensionality reduction for evaluating outliers and global sample clusters for 
 # PCA plot on mRNA data
 
 #preparing the data 
-dds <- transcript_data 
-dds <- select(dds, c(1,6:length(dds))) #selects the sample_ID and gene data, add '3' for group column data 
+tds <- transcript_data 
+tds <- select(tds, c(1, 3, 6:length(tds))) #selects the sample_ID and gene data, add '3' for group column data 
+
+trans_groups <- as.data.frame(tds$group)
+trans_groups <- plyr::rename(trans_groups, c("tds$group" = "group"))
 
 #dds <- dds[order(dds$sample_ID), ]
 #dds <- select(dds, contains('_dose1')) #selecting FC data for first dose genes
 
-ads <- dds # creating a second object for transcript data analysis
+ads <- tds # creating a second object for transcript data analysis -> adjusted
 ads <- column_to_rownames(ads, var = "sample_ID")
-ads <- select(dds, contains('_dose1'))
-
+ads <- select(ads, contains('_dose1'))
 
 #dds <- as.data.frame(dds)
 
-
 #creating PCA results object
-pcaRes <- prcomp(t(ads)) #as table
+pcaRes <- prcomp(t(ads)) #as table, returns PCA 
+pcaRes_genesort <- prcomp(ads) #necessary for returning genes sorted by PCA
 
 varExp <- round(summary(pcaRes)[[1]], digits = 2)
 
@@ -192,6 +194,7 @@ var$contrib %>%
   kableExtra::kable() %>%
   kable_styling(bootstrap_options = "striped", full_width = FALSE)
 
+#visualisations 
 fviz_pca_ind(pcaRes,
              col.ind = "cos2", # Color by the quality of representation
              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
@@ -203,14 +206,14 @@ fviz_pca_biplot(pcaRes, select.ind = list(contrib = 10),
                ggtheme = theme_minimal())
 
 # Results for individuals
-res.ind <- get_pca_ind(pcaRes)
+res.ind <- get_pca_ind(pcaRes_genesort)
 res.ind$coord          # Coordinates
 res.ind$contrib        # Contributions to the PCs
 res.ind$cos2           # Quality of representation
 
 # Extract loadings and eigenvalues
-loadings <- pcaRes$rotation  # Loadings (variable loadings on PCs)
-eigenvalues <- pcaRes$sdev^2  # Eigenvalues (variance explained by each PC)
+loadings <- pcaRes_genesort$rotation  # Loadings (variable loadings on PCs)
+eigenvalues <- pcaRes_genesort$sdev^2  # Eigenvalues (variance explained by each PC)
 
 # Calculate variable contributions to PC1
 contributions_to_PC1 <- (loadings[, 1]^2) * eigenvalues[1]
@@ -240,74 +243,79 @@ print(top_variables_PC2)
 hist(as.matrix(ads)) 
 
 #filtering by fold change over 0.5 
-ads_filtered <- ads[sapply(ads, function(x) x > 0.5)]
+#ads_filtered <- ads[sapply(ads, function(x) x > 0.5)]
 
 ```
 
 ##filtering the fold change data by variance
 ```{r}
 
-ads <- as.data.frame.data.frame(dds)
-names <- ads$sample_ID
-ads <- column_to_rownames(ads, var = "sample_ID")
-ads <- dplyr::select(ads, contains('_dose1'))
+var_ads <- as.data.frame.data.frame(tds)
+names <- var_ads$sample_ID
+var_ads <- column_to_rownames(var_ads, var = "sample_ID")
+var_ads <- dplyr::select(var_ads, contains('_dose1'))
 
 # Calculate the variance for each column
-variance_values <- apply(ads, 2, var, na.rm = TRUE)
+variance_values <- apply(var_ads, 2, var, na.rm = TRUE)
 
 # Determine the number of columns to select (top 10%)
 percentage_to_select <- 0.1
-num_columns_to_select <- round(percentage_to_select * ncol(ads))
+num_columns_to_select <- round(percentage_to_select * ncol(var_ads))
 
 # Sort columns by variance in descending order and select the top columns
 selected_columns <- names(sort(variance_values, decreasing = TRUE)[1:num_columns_to_select])
 
 # Subset the data frame to retain only the selected columns
-ads_filtered <- ads[, selected_columns, drop = FALSE]
+ads_filtered <- var_ads[, selected_columns, drop = FALSE]
 
 # Print the filtered data frame
 print(ads_filtered)
 
-ads_filtered$sample_ID <- namesx #this might need to be changed
+ads_filtered$sample_ID <- names #this might need to be changed
+
 ```
 
 
 # Data formatting
 ```{r}
 #Preparing for the MOFA data table converting genes to unique row with fold change while preserving sample & group 
-trans_dtz <- pivot_longer(ads_filtered,
-    cols = !sample_ID,                      
+
+#adding back the groups
+ads_filtered <- cbind(ads_filtered, group = trans_groups) 
+
+trans_dt <- pivot_longer(ads_filtered,
+    cols = !sample_ID:group,                      
     names_to = "feature",
     values_to = "value",
   )
 
-trans_dtz <- plyr::rename(trans_dtz, c("sample_ID" = "sample")) #this one worked to rename them
-trans_dtz <- cbind(trans_dtz, view = "mRNA" )
+trans_dt <- plyr::rename(trans_dt, c("sample_ID" = "sample")) #this one worked to rename them
+trans_dtv <- cbind(trans_dt, view = "mRNA" )
 
 #cytokine data processing, choosing sample with timepoint
 time <- "V2"
 cyto_x <- cytokine_data %>% dplyr::filter(Timepoint %in% time)
-cyto_v <- select(cyto_x, c(1, 5:35)) #takes the subject ID and the cytokines
+cyto_t <- select(cyto_x, c(1, 4:35)) #takes the subject ID and the cytokines, add '4' to include group
 
-cyto_hist <- select(cyto_v, c(2:32))
+cyto_hist <- select(cyto_x, c(5:35))
 hist(as.matrix(cyto_hist))
 
 #Resetting group values & names
-cyto_v[cyto_v == "Experienced"] <- "pos"
-cyto_v[cyto_v == "Naive"] <- "neg"
-cyto_v <- plyr::rename(cyto_v, c("subject_ID" = "sample"))
-cyto_v <- plyr::rename(cyto_v, c("Study group" = "group"))
+cyto_t[cyto_t == "Experienced"] <- "pos"
+cyto_t[cyto_t == "Naive"] <- "neg"
+cyto_t <- plyr::rename(cyto_t, c("subject_ID" = "sample"))
+cyto_t <- plyr::rename(cyto_t, c("Study group" = "group"))
 
 
 #Matches samples against against the transcript data
-names_match <- dds$sample_ID
-cyto_v <- cyto_v %>%
+names_match <- tds$sample_ID
+cyto_t <- cyto_t %>%
   dplyr::filter(sample %in% names_match)
 
 
 #Preparing for the MOFA data table converting cytokine to unique row with fold change while preserving sample names
-cyto_dt <- pivot_longer(cyto_v,
-    cols = !sample,
+cyto_dt <- pivot_longer(cyto_t,
+    cols = !sample:group,
     names_to = "feature",
     values_to = "value",
   )
@@ -319,7 +327,7 @@ cyto_dtv <- cbind(cyto_dt, view = "cytokine" )
 cyto_dtv <- relocate(cyto_dtv, group, .after = sample)
 
 #creates data table object for MOFA from both data sets 
-dt <- bind_rows(trans_dtz, cyto_dtv)
+dt <- bind_rows(trans_dtv, cyto_dtv)
 
 ```
 
@@ -328,10 +336,10 @@ dt <- bind_rows(trans_dtz, cyto_dtv)
 
 # MOFA
 class(dt)
-dt[,group:=NULL]
+dt <- as.data.table(dt)
+dt[,group:=NULL] #necessary once groups are added to the dt object
 
-
-MOFAobject <- create_mofa(dt_filter)
+MOFAobject <- create_mofa(dt)
 
 print(MOFAobject)
 
@@ -436,7 +444,7 @@ plot_data_scatter(model,
 )
 
 ggplot()
-#trans_dtz: pull top 10 genes & make scatter plot, don't forget to scale...
+#trans_dtv: pull top 10 genes & make scatter plot, don't forget to scale...
 #cyto_dtv: find IP-10 & MCP-2 in to plot against top 10 genes 
 
 
