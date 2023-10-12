@@ -64,6 +64,7 @@ library(basilisk)
 library(SummarizedExperiment)
 library(DESeq2)
 
+
 ```
 
 ## Load data
@@ -77,14 +78,14 @@ transcript_data <- data.table::fread("../data/machine_learning_dataset/fold_chan
 cytokine_data <- data.table::fread("../data/cytokine_luminex/220406_luminex_edited_data_FC.csv")
 
 # Read the MOFA data set: transcript + cytokine
-combined_data <- data.table::fread("../data/mofa_test/combined_data.csv")  
+#combined_data <- data.table::fread("../data/mofa_test/combined_data.csv")  
 
 ```
 
 
 ## Take environment snapshot 
 ```{r}
-renv::snapshot()
+#renv::snapshot()
 ```
 
 ## Metadata
@@ -333,10 +334,10 @@ dt <- bind_rows(trans_dtv, cyto_dtv)
 
 ## MOFA integration
 ```{r}
-
 # MOFA
 class(dt)
 dt <- as.data.table(dt)
+
 dt[,group:=NULL] #necessary once groups are added to the dt object
 
 MOFAobject <- create_mofa(dt)
@@ -443,10 +444,220 @@ plot_data_scatter(model,
   color_by = "MCP-2"
 )
 
-ggplot()
-#trans_dtv: pull top 10 genes & make scatter plot, don't forget to scale...
-#cyto_dtv: find IP-10 & MCP-2 in to plot against top 10 genes 
 
+mRNA_weights <- get_weights(model, views = "mRNA", factors = "Factor1", as.data.frame = T)
+head(mRNA_weights, n=10)
+
+# Sort values by factor contribution in descending order
+sorted_weights_mRNA <- mRNA_weights[order(-mRNA_weights$value),]
+print(sorted_weights_mRNA)
+
+# Select the top N variables contributing to PC2 (e.g., top 10)
+top_x <- 10
+top_weights_mRNA <- sorted_weights_mRNA[1:top_x,]
+
+cyto_weights <- get_weights(model, views = "cytokine", factors = "Factor1", as.data.frame = T)
+head(cyto_weights, n=10)
+
+# Sort values by factor contribution in descending order
+sorted_weights_cyto <- cyto_weights[order(-cyto_weights$value),]
+
+# Select the top N variables contributing to PC2 (e.g., top 10)
+top_x2 <- 2
+top_weights_cyto <- sorted_weights_cyto[1:top_x2,]
+
+
+#Matches sorted weights against against the transcript data in MOFA format
+weighted_genes <- top_weights_mRNA$feature
+weighted_fc <- trans_dtv %>%
+  dplyr::filter(feature %in% weighted_genes)
+
+#Matches sorted weights against against the transcript data in MOFA format
+cyto_factor <- top_weights_cyto$feature
+weighted_cyto <- cyto_dtv %>%
+  dplyr::filter(feature %in% cyto_factor)
+
+
+
+#MCP-2 only
+cyt_a <- "MCP-2"
+MCP_2_weighted <- weighted_cyto %>%
+  dplyr::filter(feature %in% cyt_a)
+  
+#IP-10 only
+cyt_b <- "IP-10"
+IP_10_weighted <- weighted_cyto %>%
+  dplyr::filter(feature %in% cyt_b)
+
+#Map3k
+gene_a <- "MAP3K11_dose1"
+MAP3K_weighted <- weighted_fc %>%
+  dplyr::filter(feature %in% gene_a)
+
+
+#sorting by sample map3k
+plot_map3k_raw <- arrange(MAP3K_weighted, sample)
+plot_MCP_raw <- arrange(MCP_2_weighted, sample)
+
+plot_MCP_raw <- plyr::rename(plot_MCP_raw, c("value" = "MCP_2"))
+
+raw_mcp <- plot_MCP_raw %>% select("MCP_2")
+
+plot_rawfc_dt <- cbind(plot_map3k_raw, raw_mcp)
+
+#ip10
+plot_ip_raw <- arrange(IP_10_weighted, sample)
+
+plot_ip_raw <- plyr::rename(plot_ip_raw, c("value" = "IP_10"))
+
+raw_ip <- plot_ip_raw %>% select("IP_10")
+
+plot_rawfcx_dt <- cbind(plot_map3k_raw, raw_ip)
+
+
+
+#save this for later
+#genes_df <- weighted_fc %>% distinct(weighted_fc$feature)
+#genes <- weighted_fc$feature
+#p=0 
+#for(character in genes_df) {
+#    p <- p+1
+#  i <- character
+#  wei <- weighted_fc %>%
+#  dplyr::filter(feature %in% i)
+   
+#  print(i)
+#  print(p)
+#  print(j)
+#  print(wei)
+#}
+
+
+
+
+#Scaling functions for scaling on both data sets
+scale_standard <- function(x){(x-min(x))/(max(x)-min(x))} #scaling 0 to 1
+scale_normal <- function(x){2* ((x - min(x))/(max(x)-min(x))) -1} #scaling -1 to 1
+
+#Both cytokines
+cyto_scaled_v <- scale_standard(weighted_cyto$value) 
+cyto_scaled <- weighted_cyto
+cyto_scaled$value <- cyto_scaled_v  
+
+#MCP-2 scaled
+MCP_scaled_v <- scale_standard(MCP_2_weighted$value) 
+MCP_scaled <- MCP_2_weighted
+MCP_scaled$value <- MCP_scaled_v  
+
+#IP-10 scaled
+IP_scaled_v <- scale_standard(IP_10_weighted$value) 
+IP_scaled <- IP_10_weighted
+IP_scaled$value <- IP_scaled_v
+
+
+
+#mRNA scaled
+mRNA_scaled_v <- scale_normal(weighted_fc$value) 
+mRNA_scaled <- weighted_fc
+mRNA_scaled$value <- mRNA_scaled_v
+
+
+#Duplication for insertion in mRNA FC data table 
+MCP_scaled <- plyr::rename(MCP_scaled, c("value" = "MCP_2"))
+MCP_scaled_dup <- MCP_scaled %>% slice(rep(1:n(), each = 10))
+
+#sorting by sample
+plot_mRNA_scaled <- arrange( mRNA_scaled, sample)
+plot_MCP_scaled_dup <- arrange(MCP_scaled_dup, sample)
+
+
+new_mcp <- plot_MCP_scaled_dup %>% select("MCP_2")
+
+plot_fc_dt <- cbind(plot_mRNA_scaled, new_mcp)
+
+ 
+
+#fc_dt <- bind_rows(mRNA_scaled, cyto_scaled)
+```
+
+## Scatter plots
+```{r}
+ggplot(plot_fc_dt, aes(x = value, y = MCP_2, color = group, shape = feature)) +
+  geom_point()  
+
+ggplot(plot_rawfc_dt, aes(x = value, y = MCP_2, color = group, shape = feature)) +
+  geom_point()  + geom_smooth(method=lm, se = F, color="black")
+
+ggplot(plot_rawfcx_dt, aes(x = value, y = IP_10, color = group, shape = feature)) +
+  geom_point()  + geom_smooth(method=lm, se = F, color="black")
+
+
+
+# Basic scatter plot
+ggplot(plot_fc_dt, aes(x=value, y=MCP_2, color = group)) + 
+  geom_point()+
+  geom_smooth(method=lm, color="black")+
+  labs(title="10 ten genes per factor against cytokine: MCP-2",
+       x="mRNA fc", y = "mcp_2 fc")+
+  theme_classic()  
+# Change color/shape by groups
+# Remove confidence bands
+p <- ggplot(plot_fc_dt, aes(x=value, y=MCP_2, color=group, shape=feature)) + 
+  geom_point()+
+  geom_smooth(method=lm, se=FALSE, fullrange=TRUE)+
+  labs(title="10 ten genes per factor against cytokine: MCP-2",
+       x="mRNA fc", y = "MCP-2 fc")
+p + theme_classic()    
+  
+pcaPlot <- ggplot(pcaDF, mapping = aes(x = PC1, y = PC2, color = Sample, label = Sample)) +
+  geom_point(aes(shape = Dose), size = 3) +
+  labs(x = paste0("PC1 (", varExp[1], " %)"), 
+       y = paste0("PC2 (", varExp[2], " %)")) +
+  theme(axis.text = element_text(size = 12), 
+        legend.text = element_text(size = 10)) +
+  #scale_color_manual(values = brewer.pal(3, "Accent")) +
+  cowplot::theme_cowplot()
+  
+#ggplot()
+#trans_dtv: pull top 10 genes & make scatter plot, use top_weights_mRNA, don't forget to scale...
+#cyto_dtv: find IP-10 & MCP-2 in to plot against top 10 genes
+```
+## Factor values correlated with spike W6
+
+```{r}
+
+
+factor1 <- get_factors(model, factors = c("Factor1"), scale = F, as.data.frame = T) %>% 
+  inner_join(model@samples_metadata %>% select(-group), by="sample")
+
+factor1_spike <- cbind(factor1[,1:3], transcript_data[,3:4])
+
+
+plotfactor1 <- ggplot(factor1_spike, aes(x = value, y = Spike_W6, color = group)) +
+  geom_point()  + geom_smooth(method=lm, se = F, color="black")
+
+ ggsave(paste0("../",result.dir,"Factor1_vs_spike.pdf"), plotfactor1, width = 5, height = 5)
+
+
+(p1b <- ggplot(factor1_spike, 
+               aes(x = value, y = Spike_W6, color = Time)) + 
+    geom_point(size=1) +
+    geom_line(aes(group=ID),color="grey", alpha=0.15)+
+    theme_classic(base_size = 6) +
+    scale_color_manual(values=TIME_colors) +
+    labs(x = "Time after onset (weeks)",
+         y = "Factor 1 values",
+         color = "Sample time point",
+         fill = "weeks") +
+    theme12 +
+    theme(#legend.position='top',
+      legend.title.align=0.5,
+      legend.position =  c(0.6, 0.9)) +
+    scale_x_continuous(breaks = pretty(factor1$weeks.po, n = 10)) +
+    guides(colour=guide_legend(title="Sample Time Point",
+                               override.aes=list(size=1),
+                               nrow=2)))
+ ggsave(paste0("../plots/Factor1_vs_weekspo.pdf"), p1b, width = 5, height = 5)
 
 ```
 
