@@ -63,7 +63,7 @@ library(plyr)
 library(basilisk)
 library(SummarizedExperiment)
 library(DESeq2)
-
+library(psych)
 
 ```
 
@@ -272,7 +272,15 @@ ads_filtered <- var_ads[, selected_columns, drop = FALSE]
 # Print the filtered data frame
 print(ads_filtered)
 
+#filtering with Spearman correlation after variance
+
+spear_genes <- ads_filtered %>% select(1:900)
+
+
 ads_filtered$sample_ID <- names #this might need to be changed
+
+
+
 
 ```
 
@@ -326,6 +334,7 @@ cyto_dtv <- cbind(cyto_dt, view = "cytokine" )
 
 #moving group to match transcript data
 cyto_dtv <- relocate(cyto_dtv, group, .after = sample)
+
 
 #creates data table object for MOFA from both data sets 
 dt <- bind_rows(trans_dtv, cyto_dtv)
@@ -514,6 +523,7 @@ raw_ip <- plot_ip_raw %>% select("IP_10")
 
 plot_rawfcx_dt <- cbind(plot_map3k_raw, raw_ip)
 
+protein_raw <- cbind(raw_ip, raw_mcp)
 
 
 #save this for later
@@ -582,8 +592,8 @@ plot_fc_dt <- cbind(plot_mRNA_scaled, new_mcp)
 
 ## Scatter plots
 ```{r}
-ggplot(plot_fc_dt, aes(x = value, y = MCP_2, color = group, shape = feature)) +
-  geom_point()  
+# ggplot(plot_fc_dt, aes(x = value, y = MCP_2, color = group, shape = feature)) +
+#   geom_point()  
 
 ggplot(plot_rawfc_dt, aes(x = value, y = MCP_2, color = group, shape = feature)) +
   geom_point()  + geom_smooth(method=lm, se = F, color="black")
@@ -593,30 +603,30 @@ ggplot(plot_rawfcx_dt, aes(x = value, y = IP_10, color = group, shape = feature)
 
 
 
-# Basic scatter plot
-ggplot(plot_fc_dt, aes(x=value, y=MCP_2, color = group)) + 
-  geom_point()+
-  geom_smooth(method=lm, color="black")+
-  labs(title="10 ten genes per factor against cytokine: MCP-2",
-       x="mRNA fc", y = "mcp_2 fc")+
-  theme_classic()  
-# Change color/shape by groups
-# Remove confidence bands
-p <- ggplot(plot_fc_dt, aes(x=value, y=MCP_2, color=group, shape=feature)) + 
-  geom_point()+
-  geom_smooth(method=lm, se=FALSE, fullrange=TRUE)+
-  labs(title="10 ten genes per factor against cytokine: MCP-2",
-       x="mRNA fc", y = "MCP-2 fc")
-p + theme_classic()    
+# # Basic scatter plot
+# ggplot(plot_fc_dt, aes(x=value, y=MCP_2, color = group)) +
+#   geom_point()+
+#   geom_smooth(method=lm, color="black")+
+#   labs(title="10 ten genes per factor against cytokine: MCP-2",
+#        x="mRNA fc", y = "mcp_2 fc")+
+#   theme_classic()
+# # Change color/shape by groups
+# # Remove confidence bands
+# p <- ggplot(plot_fc_dt, aes(x=value, y=MCP_2, color=group, shape=feature)) +
+#   geom_point()+
+#   geom_smooth(method=lm, se=FALSE, fullrange=TRUE)+
+#   labs(title="10 ten genes per factor against cytokine: MCP-2",
+#        x="mRNA fc", y = "MCP-2 fc")
+# p + theme_classic()
   
-pcaPlot <- ggplot(pcaDF, mapping = aes(x = PC1, y = PC2, color = Sample, label = Sample)) +
-  geom_point(aes(shape = Dose), size = 3) +
-  labs(x = paste0("PC1 (", varExp[1], " %)"), 
-       y = paste0("PC2 (", varExp[2], " %)")) +
-  theme(axis.text = element_text(size = 12), 
-        legend.text = element_text(size = 10)) +
-  #scale_color_manual(values = brewer.pal(3, "Accent")) +
-  cowplot::theme_cowplot()
+# pcaPlot <- ggplot(pcaDF, mapping = aes(x = PC1, y = PC2, color = Sample, label = Sample)) +
+#   geom_point(aes(shape = Dose), size = 3) +
+#   labs(x = paste0("PC1 (", varExp[1], " %)"), 
+#        y = paste0("PC2 (", varExp[2], " %)")) +
+#   theme(axis.text = element_text(size = 12), 
+#         legend.text = element_text(size = 10)) +
+#   #scale_color_manual(values = brewer.pal(3, "Accent")) +
+#   cowplot::theme_cowplot()
   
 #ggplot()
 #trans_dtv: pull top 10 genes & make scatter plot, use top_weights_mRNA, don't forget to scale...
@@ -636,28 +646,33 @@ factor1_spike <- cbind(factor1[,1:3], transcript_data[,3:4])
 plotfactor1 <- ggplot(factor1_spike, aes(x = value, y = Spike_W6, color = group)) +
   geom_point()  + geom_smooth(method=lm, se = F, color="black")
 
+plotfactor1 + scale_y_continuous(trans = 'log2') + ggpubr::stat_cor(method = "spearman")
+
+#sampleDist <- cor(vst_matrix, method = "spearman")
+
+# fold_changes_ab_data_dt %>%
+#   select_if(colnames(.) %in% c("group","subject_ID","Spike_Avidity_W6",p_correlations$genes)) %>%
+#   tidyr::pivot_longer(cols =  c(colnames(.), -"group",-"subject_ID",-"Spike_Avidity_W6" ), values_to = "FC_log2", names_to = "genes") %>% 
+# ggplot(aes(x = FC_log2, y = Spike_Avidity_W6)) +
+#   geom_point(aes(color = group)) +
+#   geom_smooth(method = "glm") +
+#   ggpubr::stat_cor(method = "spearman")+
+#   scale_y_log10() +
+#   theme_bw() +
+#   facet_wrap(~genes, ncol = 4)
+
+
  ggsave(paste0("../",result.dir,"Factor1_vs_spike.pdf"), plotfactor1, width = 5, height = 5)
 
+spear_map <- plot_rawfc_dt %>% select(value,"MCP_2")
 
-# (p1b <- ggplot(factor1_spike, 
-#                aes(x = value, y = Spike_W6, color = Time)) + 
-#     geom_point(size=1) +
-#     geom_line(aes(group=ID),color="grey", alpha=0.15)+
-#     theme_classic(base_size = 6) +
-#     scale_color_manual(values=TIME_colors) +
-#     labs(x = "Time after onset (weeks)",
-#          y = "Factor 1 values",
-#          color = "Sample time point",
-#          fill = "weeks") +
-#     theme12 +
-#     theme(#legend.position='top',
-#       legend.title.align=0.5,
-#       legend.position =  c(0.6, 0.9)) +
-#     scale_x_continuous(breaks = pretty(factor1$weeks.po, n = 10)) +
-#     guides(colour=guide_legend(title="Sample Time Point",
-#                                override.aes=list(size=1),
-#                                nrow=2)))
-#  ggsave(paste0("../plots/Factor1_vs_weekspo.pdf"), p1b, width = 5, height = 5)
+spearman_map <- corr.test(spear_map, method="spearman", adjust="none")
+
+spearman_raw <- corr.test(spear_genes, protein_raw, method ="spearman", adjust ="none")
+sig_list <- spearman_raw$p < 0.05
+
+#sig_genelist <- select(sig_list, where(siglist$IP_10 | sig_list$MCP_2 == TRUE) )
+
 
 ```
 
