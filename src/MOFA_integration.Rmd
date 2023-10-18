@@ -216,6 +216,8 @@ res.ind$cos2           # Quality of representation
 loadings <- pcaRes_genesort$rotation  # Loadings (variable loadings on PCs)
 eigenvalues <- pcaRes_genesort$sdev^2  # Eigenvalues (variance explained by each PC)
 
+
+
 # Calculate variable contributions to PC1
 contributions_to_PC1 <- (loadings[, 1]^2) * eigenvalues[1]
 
@@ -228,6 +230,7 @@ top_variables_PC1 <- sorted_variables[1:top_N]
 
 print(top_variables_PC1)
 
+
 # Calculate variable contributions to PC2
 contributions_to_PC2 <- (loadings[, 2]^2) * eigenvalues[2]
 
@@ -239,6 +242,33 @@ top_N <- 1000
 top_variables_PC2 <- sorted_variables[1:top_N]
 
 print(top_variables_PC2)
+
+
+#For loop for extracting the top N variables contributing to each PC
+n=0
+pca_list <- NULL
+pca_row <- NULL
+for (i in colnames(loadings)) {
+  n <- n+1   
+  contributions_to_PC <- (loadings[, n]^2) * eigenvalues[n]
+
+# Sort variables by contribution to PC1 in descending order
+sorted_variables <- names(contributions_to_PC)[order(-contributions_to_PC)]
+
+# Select the top N variables contributing to PC1 (e.g., top 10)
+top_variables_PC <- sorted_variables[1:top_N]
+
+  print(i)
+  pc_table <- as.data.table(top_variables_PC)
+  print(top_variables_PC)
+  pca_list <- cbind(pca_list, pc_table)
+  pca_row <- bind_rows(pca_row, pc_table)
+  }
+
+#
+counts_pca_row <- count(pca_row)
+pcas_row <- column_to_rownames(counts_pca_row, var = "top_variables_PC")
+
 
 ##
 hist(as.matrix(ads)) 
@@ -273,7 +303,6 @@ ads_filtered <- var_ads[, selected_columns, drop = FALSE]
 print(ads_filtered)
 
 #filtering with Spearman correlation after variance
-
 spear_genes <- ads_filtered %>% select(1:900)
 
 
@@ -461,7 +490,7 @@ head(mRNA_weights, n=10)
 sorted_weights_mRNA <- mRNA_weights[order(-mRNA_weights$value),]
 print(sorted_weights_mRNA)
 
-# Select the top N variables contributing to PC2 (e.g., top 10)
+# Select the top N variables contributing to factor 1
 top_x <- 10
 top_weights_mRNA <- sorted_weights_mRNA[1:top_x,]
 
@@ -471,17 +500,17 @@ head(cyto_weights, n=10)
 # Sort values by factor contribution in descending order
 sorted_weights_cyto <- cyto_weights[order(-cyto_weights$value),]
 
-# Select the top N variables contributing to PC2 (e.g., top 10)
+# Select the top N variables contributing to factor 1 
 top_x2 <- 2
 top_weights_cyto <- sorted_weights_cyto[1:top_x2,]
 
 
-#Matches sorted weights against against the transcript data in MOFA format
+#Matches sorted weights against the transcript data in MOFA format
 weighted_genes <- top_weights_mRNA$feature
 weighted_fc <- trans_dtv %>%
   dplyr::filter(feature %in% weighted_genes)
 
-#Matches sorted weights against against the transcript data in MOFA format
+#Matches sorted weights against the transcript data in MOFA format
 cyto_factor <- top_weights_cyto$feature
 weighted_cyto <- cyto_dtv %>%
   dplyr::filter(feature %in% cyto_factor)
@@ -506,24 +535,53 @@ MAP3K_weighted <- weighted_fc %>%
 
 #sorting by sample map3k
 plot_map3k_raw <- arrange(MAP3K_weighted, sample)
+
+#MCP-2
 plot_MCP_raw <- arrange(MCP_2_weighted, sample)
-
 plot_MCP_raw <- plyr::rename(plot_MCP_raw, c("value" = "MCP_2"))
-
 raw_mcp <- plot_MCP_raw %>% select("MCP_2")
 
 plot_rawfc_dt <- cbind(plot_map3k_raw, raw_mcp)
 
+
 #ip10
 plot_ip_raw <- arrange(IP_10_weighted, sample)
-
 plot_ip_raw <- plyr::rename(plot_ip_raw, c("value" = "IP_10"))
-
 raw_ip <- plot_ip_raw %>% select("IP_10")
 
 plot_rawfcx_dt <- cbind(plot_map3k_raw, raw_ip)
 
+#protein raw fold change for IP-10 & MCP-2
 protein_raw <- cbind(raw_ip, raw_mcp)
+
+
+#data selection for plot generation for loops
+raw_genes <-  tds %>%
+  select(sample_ID, group, weighted_genes)
+ raw_genes <- plyr::rename(raw_genes, c("sample_ID" = "sample"))
+raw_genes <- arrange(raw_genes, sample)
+
+raw_plot <- cbind(raw_genes, protein_raw)
+
+raw_plot <- as.data.frame(raw_plot)
+
+# for loops for generating plots MCP-2
+for (i in colnames(raw_plot[3:12])) {
+ 
+   m <- ggplot(raw_plot, aes(x = raw_plot[ , i] , y = MCP_2, color = group, shape = i )) +
+    geom_point()  + geom_smooth(method=lm, se = F, color="black")
+
+  print(m) 
+}
+
+# for loops for generating plots IP-10
+for (i in colnames(raw_plot[3:12])) {
+
+    m <- ggplot(raw_plot, aes(x = raw_plot[ , i] , y = IP_10, color = group, shape = i )) +
+    geom_point()  + geom_smooth(method=lm, se = F, color="black")
+
+  print(m) 
+}
 
 
 #save this for later
@@ -602,7 +660,6 @@ ggplot(plot_rawfcx_dt, aes(x = value, y = IP_10, color = group, shape = feature)
   geom_point()  + geom_smooth(method=lm, se = F, color="black")
 
 
-
 # # Basic scatter plot
 # ggplot(plot_fc_dt, aes(x=value, y=MCP_2, color = group)) +
 #   geom_point()+
@@ -635,14 +692,14 @@ ggplot(plot_rawfcx_dt, aes(x = value, y = IP_10, color = group, shape = feature)
 ## Factor values correlated with spike W6
 
 ```{r}
-
-
+#Retrieves factor associated value and merges with meta data
 factor1 <- get_factors(model, factors = c("Factor1"), scale = F, as.data.frame = T) %>% 
   inner_join(model@samples_metadata %>% select(-group), by="sample")
 
+#Binds the MOFA Factor1 dataset with spike avidity data week 6
 factor1_spike <- cbind(factor1[,1:3], transcript_data[,3:4])
 
-
+#Scatter plot
 plotfactor1 <- ggplot(factor1_spike, aes(x = value, y = Spike_W6, color = group)) +
   geom_point()  + geom_smooth(method=lm, se = F, color="black")
 
@@ -661,17 +718,134 @@ plotfactor1 + scale_y_continuous(trans = 'log2') + ggpubr::stat_cor(method = "sp
 #   theme_bw() +
 #   facet_wrap(~genes, ncol = 4)
 
+#Saves plot
+ggsave(paste0("../",result.dir,"Factor1_vs_spike.pdf"), plotfactor1, width = 5, height = 5)
 
- ggsave(paste0("../",result.dir,"Factor1_vs_spike.pdf"), plotfactor1, width = 5, height = 5)
 
+#Selects FC raw from data plot object MAP3K/MCP-2
 spear_map <- plot_rawfc_dt %>% select(value,"MCP_2")
 
+#Correlations test between MAP3K & MCP-2 data
 spearman_map <- corr.test(spear_map, method="spearman", adjust="none")
+spearman_map$p #i.e. highly correlated only within each data set
 
+#Correlations test between raw transcript (after variance sort) FC & protein FC (IP-10 & MCP-2)
 spearman_raw <- corr.test(spear_genes, protein_raw, method ="spearman", adjust ="none")
-sig_list <- spearman_raw$p < 0.05
+#Generates list of p-values for each gene correlated with the proteins
+sigs <- spearman_raw$p
+#list of logical values 
+sig_list <- spearman_raw$p < 0.05 
 
-#sig_genelist <- select(sig_list, where(siglist$IP_10 | sig_list$MCP_2 == TRUE) )
+sig_list_df <- as.data.frame(sig_list)
+
+
+# Finds row indices where either column is TRUE
+row_indices <- which(sig_list[,1] | sig_list[,2])
+
+# Extracts row names based on the row indices
+row_names_spear <- rownames(sig_list_df[row_indices, ])
+
+#object with the filtered genes via correlation
+spear_genes_filtered <- spear_genes %>% select(row_names_spear)
+
+
+#Sorting for a smaller pool of genes p < 0.01
+sigs_one <- spearman_raw$p
+sig_list_one <- spearman_raw$p < 0.01
+sig_list_one_df <- as.data.frame(sig_list_one)
+
+row_indices_slo <- which(sig_list_one[,1] | sig_list_one[,2])
+
+# Extracts row names based on the row indices
+row_names_spear_one <- rownames(sig_list_one_df[row_indices_slo, ])
+
+#object with the filtered genes via correlation
+spear_genes_filtered_one <- spear_genes %>% select(row_names_spear_one)
+
+#adding back in the groups, large plot spear_genes_filtered_one
+fc_groups <- tds %>% select((c("sample_ID","group")))
+fc_groups <- plyr::rename(fc_groups, c("sample_ID" = "sample"))
+fc_groups_sort <- arrange(fc_groups, sample)
+
+sgfo <- rownames_to_column(spear_genes_filtered_one)
+sgfo_fc <- plyr::rename(sgfo, c("rowname" = "sample"))
+plot_sgfo_raw <- arrange(sgfo_fc, sample)
+plot_sgfo_raw <- cbind(plot_sgfo_raw, group = fc_groups_sort$group, raw_mcp, raw_ip)
+
+#Plotting ... 
+#For loop for printing plots by gene 
+
+#p < 0.01
+for (i in colnames(plot_sgfo_raw[2:12])) {
+print(i)
+m <- ggplot(plot_sgfo_raw, aes(x = plot_sgfo_raw[ , i] , y = MCP_2, color = group, shape = i )) +
+  geom_point()  + geom_smooth(method=lm, se = F, color="black")
+
+# + facet_wrap( ~ MCP_2)
+#print(i)
+#print(plot_sgfo_raw[ , i])
+#print(plot_sgfo_raw[ , 14])
+print(m) 
+}
+
+#p < 0.05
+sgffive <- rownames_to_column(spear_genes_filtered)
+sgff_fc <- plyr::rename(sgffive, c("rowname" = "sample"))
+plot_sgff_raw <- arrange(sgff_fc, sample)
+plot_sgff_raw <- cbind(plot_sgff_raw, group = fc_groups_sort$group, raw_mcp, raw_ip)
+
+
+# for loops for generating plots p < 0.05
+for (i in colnames(plot_sgff_raw[2:72])) {
+  m <- ggplot(plot_sgff_raw, aes(x = plot_sgff_raw[ , i] , y = MCP_2, color = group, shape = i )) +
+    geom_point()  + geom_smooth(method=lm, se = F, color="black")
+# + facet_wrap( ~ MCP_2)
+#print(i)
+#print(plot_sgfo_raw[ , i])
+#print(plot_sgfo_raw[ , 14])
+  print(m) 
+}
+
+for (i in colnames(plot_sgff_raw[2:72])) {
+  m <- ggplot(plot_sgff_raw, aes(x = plot_sgff_raw[ , i] , y = IP_10, color = group, shape = i )) +
+    geom_point()  + geom_smooth(method=lm, se = F, color="black")
+# + facet_wrap( ~ MCP_2)
+#print(i)
+#print(plot_sgfo_raw[ , i])
+#print(plot_sgfo_raw[ , 14])
+  print(m) 
+}
+
+
+
+#The following were done by hand
+#ensg
+ensg_fc <- ads_filtered %>% select("ENSG00000284770_dose1", group)
+ensg_fc <- arrange(ensg_fc, rownames(ensg_fc))
+plot_spearman_1 <- cbind(ensg_fc, raw_mcp)
+plot_spearman_2 <- cbind(ensg_fc, raw_ip)
+
+#HLA-DQA2
+hladq_fc <- ads_filtered %>% select("HLA-DQA2_dose1", group)
+hladq_fc <- plyr::rename(hladq_fc, c("HLA-DQA2_dose1" = "HLA_DQA2_dose1"))
+hladq_fc <- arrange(hladq_fc, rownames(hladq_fc))
+
+#AEBP1
+aebp1_fc <- ads_filtered %>% select("AEBP1_dose1", group)
+aebp1_fc <- arrange(aebp1_fc, rownames(aebp1_fc))
+plot_spearman_1 <- cbind(aebp1_fc, raw_mcp)
+plot_spearman_2 <- cbind(aebp1_fc, raw_ip)
+
+
+#general objects needing manual changes to run the below plots
+# ggplot(plot_spearman_1, aes(x = ENSG00000284770_dose1, y = MCP_2, color = group, )) +
+#   geom_point()  + geom_smooth(method=lm, se = F, color="black")
+# 
+# ggplot(plot_spearman_2, aes(x = AEBP1_dose1, y = IP_10, color = group, )) +
+#   geom_point()  + geom_smooth(method=lm, se = F, color="black")
+
+
+
 
 
 ```
