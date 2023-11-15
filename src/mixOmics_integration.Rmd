@@ -126,6 +126,17 @@ cytokine_data <- arrange(cytokine_data, subject_ID)
 
 ## Data Pre-processing
 ```{r}
+#function definitions
+not_all_ones <- function(x) {
+  x %>%
+    select(which(colSums(. == 1, na.rm = TRUE) < nrow(.)))
+}
+
+#NA removal function
+not_all_na <- function(x) any(!is.na(x))
+
+
+#Removing irrelevant columns
 trans_ds <- select(transcript_data, c(1, 3, 6:length(transcript_data))) #selects the sample_ID, group, and gene data 
 
 cyto_ds <- select(cytokine_data, c(1, 3:35)) # Selects sample_ID, group, and cytokine data
@@ -142,43 +153,333 @@ cyto_ds <- cyto_ds %>%
   dplyr::filter(sample %in% names_match)
 
 #Creates a list of exp/naive matching the sample
-trans_groups <- as.data.frame(trans_ds$group)
-trans_groups <- plyr::rename(trans_groups, c("trans_ds$group" = "group"))
-
+trans_groups <- as.data.frame(trans_ds$sample_ID)
+trans_groups <- cbind(trans_groups,trans_ds$group)
+trans_groups <- plyr::rename(trans_groups, c("trans_ds$group" = "group", "trans_ds$sample_ID" = "sample"))
+trans_groups_exp <- trans_groups %>% filter(group == "pos")
+trans_groups_nai <- trans_groups %>% filter(group == "neg")
 
 #Doses 1-3
 tds <- column_to_rownames(trans_ds, var = "sample_ID")
 transcript_d1 <- select(tds, contains('_dose1'))
 transcript_d2 <- select(tds, contains('_dose2'))
 transcript_d3 <- select(tds, contains('_dose3'))
+transcript_d1g <- bind_cols(transcript_d1, trans_groups)
+
+#Dose 2 removing patient 222-21
+transcript_d2g <- bind_cols(transcript_d2, trans_groups)
+#transcript_d2g <- rownames_to_column(transcript_d2g, var = "sample")
+transcript_d2 <- na.omit(transcript_d2)
+transcript_d2g <- na.omit(transcript_d2g)
+
+#Dose 3 removing NAs
+transcript_d3g <- bind_cols(transcript_d3, trans_groups)
+#transcript_d3g <- rownames_to_column(transcript_d3g, var = "sample")
+transcript_d3 <- na.omit(transcript_d3)
+transcript_d3g <- na.omit(transcript_d3g)
 
 #Dose 1 cytokine data
 time_d1 <- "V2"
 cyto_d1 <- cyto_ds %>% dplyr::filter(Timepoint %in% time_d1)
 #Dose 1 Cytokine correlation object 
 cyto_d1 <- select(cyto_d1, c(4:34)) 
+cyto_d1 <- not_all_ones(cyto_d1)
+cyto_d1 <- as.data.frame(cyto_d1) %>% select(where(not_all_na))
+
 
 #Dose 2 cytokine data
 time_d2 <- "V5"
 cyto_d2 <- cyto_ds %>% dplyr::filter(Timepoint %in% time_d2)
 #Cytokine correlation data dose
 cyto_d2 <- select(cyto_d2, c(4:34)) 
+#removing 222-21
+cyto_d2 <- cyto_d2[-c(8),]
+cyto_d2 <- not_all_ones(cyto_d2)
+cyto_d2 <- as.data.frame(cyto_d2) %>% select(where(not_all_na))
 
-#Dose #3 cytokine data
+
+
+#Dose 3 cytokine data
 time_d3 <- "V11"
 cyto_d3 <- cyto_ds %>% dplyr::filter(Timepoint %in% time_d3)
 #Dose 3 Cytokine correlation object 
 cyto_d3 <- select(cyto_d3, c(4:34))
+#removing samples with missing transcript data
+cyto_d3 <- cyto_d3[-c(4,7:8),]
+cyto_d3 <- as.data.frame(cyto_d3) %>% select(where(not_all_na))
+cyto_d3 <- na.omit(cyto_d3)
+cyto_d3 <- not_all_ones(cyto_d3)
+
+
+
+
+
+
 ```
 
 ## PCA
 ```{r}
 
+#Dose 1
 pca.gene <- pca(transcript_d1, ncomp = 10, center = TRUE, scale = TRUE)
 pca.cyto <- pca(cyto_d1, ncomp = 10, center = TRUE, scale = TRUE)
 
+
 plot(pca.gene)
-plot(pca.clinic)
+plot(pca.cyto)
+
+
+plotIndiv(pca.gene, comp = c(1, 2), 
+          group = transcript_d1g$group, 
+          ind.names = transcript_d1g$sample, 
+          legend = TRUE, title = 'Dose 1 mRNA transcripts, PCA comp 1 - 2')
+
+plotIndiv(pca.cyto, comp = c(1, 2), 
+          group = transcript_d1g$group, 
+          ind.names = transcript_d1g$sample, 
+          legend = TRUE, title = 'Dose 1 cytokine, PCA comp 1 - 2')
+
+#dose 2
+pca.gene2 <- pca(transcript_d2, ncomp = 10, center = TRUE, scale = TRUE)
+pca.cyto2 <- pca(cyto_d2, ncomp = 10, center = TRUE, scale = TRUE)
+
+
+plot(pca.gene2)
+plot(pca.cyto2)
+
+
+plotIndiv(pca.gene2, comp = c(1, 2), 
+          group = transcript_d2g$group, 
+          ind.names = transcript_d2g$sample, 
+          legend = TRUE, title = 'Dose 2 mRNA transcripts, PCA comp 1 - 2')
+
+plotIndiv(pca.cyto2, comp = c(1, 2), 
+          group = transcript_d2g$group, 
+          ind.names = transcript_d2g$sample, 
+          legend = TRUE, title = 'Dose 2 cytokine, PCA comp 1 - 2')
+
+#Dose 3
+pca.gene3 <- pca(transcript_d3, ncomp = 10, center = TRUE, scale = TRUE)
+pca.cyto3 <- pca(cyto_d3, ncomp = 10, center = TRUE, scale = TRUE)
+
+
+plot(pca.gene3)
+plot(pca.cyto3)
+
+
+plotIndiv(pca.gene3, comp = c(1, 2), 
+          group = transcript_d3g$group, 
+          ind.names = transcript_d3g$sample, 
+          legend = TRUE, title = 'Dose 3 mRNA transcripts, PCA comp 1 - 2')
+
+plotIndiv(pca.cyto3, comp = c(1, 2), 
+          group = transcript_d3g$group, 
+          ind.names = transcript_d3g$sample, 
+          legend = TRUE, title = 'Dose 3 cytokine, PCA comp 1 - 2')
+
+```
+
+## sPLS analysis
+```{r}
+spls.d1 <- spls(X = transcript_d1, Y = cyto_d1, ncomp = 5, mode = 'regression')
+
+# #For dealing with NAs in data sets
+# nipals.tune = nipals(cyto_d1, ncomp = 10)$eig
+
+# repeated CV tuning of component count
+perf.spls.d1 <- perf(spls.d1, validation = 'Mfold',
+                         folds = 10, nrepeat = 5) 
+
+plot(perf.spls.d1, criterion = 'Q2.total')
+
+
+# set range of test values for number of variables to use from X dataframe
+list.keepX <- c(seq(20, 60, 5))
+# set range of test values for number of variables to use from Y dataframe
+list.keepY <- c(3:17) 
+
+
+tune.spls.d1 <- tune.spls(transcript_d1, cyto_d1, ncomp = 2,
+                              test.keepX = list.keepX,
+                              test.keepY = list.keepY,
+                              nrepeat = 1, folds = 10, # use 10 folds
+                              mode = 'regression', measure = 'cor') 
+
+plot(tune.spls.d1)         # use the correlation measure for tuning
+
+
+
+
+#Dose 2
+spls.d2 <- spls(X = transcript_d2, Y = cyto_d2, ncomp = 5, mode = 'regression')
+
+# repeated CV tuning of component count
+perf.spls.d2 <- perf(spls.d2, validation = 'Mfold',
+                         folds = 10, nrepeat = 5) 
+
+plot(perf.spls.d2, criterion = 'Q2.total')
+
+
+# set range of test values for number of variables to use from X dataframe
+list.keepX <- c(seq(20, 60, 5))
+# set range of test values for number of variables to use from Y dataframe
+list.keepY <- c(3:19) 
+
+tune.spls.d2 <- tune.spls(transcript_d2, cyto_d2, ncomp = 2,
+                              test.keepX = list.keepX,
+                              test.keepY = list.keepY,
+                              nrepeat = 1, folds = 10, # use 10 folds
+                              mode = 'regression', measure = 'cor') 
+
+plot(tune.spls.d2)         # use the correlation measure for tuning
+
+
+tune.spls.d2$choice.keepX
+tune.spls.d2$choice.keepY
+
+# extract optimal number of variables for X dataframe
+optimal.keepX <- tune.spls.d2$choice.keepX 
+
+# extract optimal number of variables for Y datafram
+optimal.keepY <- tune.spls.d2$choice.keepY
+
+optimal.ncomp <-  length(optimal.keepX) # extract optimal number of components
+
+ #use all tuned values from above
+final.spls.d2 <- spls(transcript_d2, cyto_d2, ncomp = optimal.ncomp, 
+                    keepX = optimal.keepX,
+                    keepY = optimal.keepY,
+                    mode = "regression") # explanitory approach being used, 
+                                         # hence use regression mode
+
+
+plotIndiv(final.spls.d2, ind.names = FALSE, 
+         rep.space = "X-variate", # plot in X-variate subspace
+         group = transcript_d2g$group, # colour by  group
+         pch = as.factor(transcript_d2g$sample), 
+         col.per.group = color.mixo(1:2), 
+         legend = TRUE, legend.title = 'Group', legend.title.pch = 'Dose')
+
+plotIndiv(final.spls.d2, ind.names = FALSE,
+         rep.space = "Y-variate", # plot in Y-variate subspace
+         group = transcript_d2g$group, # colour by time group
+         pch = as.factor(transcript_d2g$sample), 
+         col.per.group = color.mixo(1:2), 
+         legend = TRUE, legend.title = 'Time', legend.title.pch = 'Dose')
+
+plotIndiv(final.spls.d2, ind.names = FALSE, 
+         rep.space = "XY-variate", # plot in averaged subspace
+         group = transcript_d2g$group, # colour by time group
+         pch = as.factor(transcript_d2g$sample), # select symbol
+         col.per.group = color.mixo(1:2),                      # by dose group
+         legend = TRUE, legend.title = 'Time', legend.title.pch = 'Dose')
+
+color.edge <- color.GreenRed(50)  # set the colours of the connecting lines
+
+# X11() # To open a new window for Rstudio
+network(final.spls.d2, comp = 1:2,
+        cutoff = 0.7, # only show connections with a correlation above 0.7
+        shape.node = c("rectangle", "circle"),
+        graph.scale = 0.15,
+        size.node = .5,
+        color.node = c("cyan", "pink"),
+        color.edge = color.edge,
+        save = 'png', # save as a png to the current working directory
+        name.save = 'MixOmics_Network_dose_2_size0.25')
+
+cim(final.spls.d2, comp = 1:2, xlab = "Cytokines", ylab = "mRNA", save = 'pdf', name.save = 'mixOmics_heatmap_dose_2' )
+
+
+#Dose 3
+spls.d3 <- spls(X = transcript_d3, Y = cyto_d3, ncomp = 5, mode = 'regression')
+
+# repeated CV tuning of component count
+perf.spls.d3 <- perf(spls.d3, validation = 'Mfold',
+                         folds = 10, nrepeat = 5) 
+plot(perf.spls.d3, criterion = 'Q2.total')
+
+
+
+# set range of test values for number of variables to use from X dataframe
+list.keepX <- c(seq(20, 60, 5))
+# set range of test values for number of variables to use from Y dataframe
+list.keepY <- c(3:12) 
+
+tune.spls.d3 <- tune.spls(transcript_d3, cyto_d3, ncomp = 2,
+                              test.keepX = list.keepX,
+                              test.keepY = list.keepY,
+                              nrepeat = 1, folds = 10, # use 10 folds
+                              mode = 'regression', measure = 'cor') 
+
+plot(tune.spls.d3)         # use the correlation measure for tuning
+
+
+tune.spls.d3$choice.keepX
+tune.spls.d3$choice.keepY
+
+# extract optimal number of variables for X dataframe
+optimal.keepX <- tune.spls.d3$choice.keepX 
+
+# extract optimal number of variables for Y datafram
+optimal.keepY <- tune.spls.d3$choice.keepY
+
+optimal.ncomp <-  length(optimal.keepX) # extract optimal number of components
+
+ #use all tuned values from above
+final.spls.d3 <- spls(transcript_d3, cyto_d3, ncomp = optimal.ncomp, 
+                    keepX = optimal.keepX,
+                    keepY = optimal.keepY,
+                    mode = "regression") # explanitory approach being used, 
+                                         # hence use regression mode
+
+#These only work if there are >1 components
+plotIndiv(final.spls.d3, ind.names = FALSE, 
+         rep.space = "X-variate", # plot in X-variate subspace
+         group = transcript_d3g$group, # colour by  group
+         pch = as.factor(transcript_d3g$sample), 
+         col.per.group = color.mixo(1:2), 
+         legend = TRUE, legend.title = 'Group', legend.title.pch = 'Dose')
+
+plotIndiv(final.spls.d3, ind.names = FALSE,
+         rep.space = "Y-variate", # plot in Y-variate subspace
+         group = transcript_d3g$group, # colour by time group
+         pch = as.factor(transcript_d3g$sample), 
+         col.per.group = color.mixo(1:2), 
+         legend = TRUE, legend.title = 'Time', legend.title.pch = 'Dose')
+
+plotIndiv(final.spls.d3, ind.names = FALSE, 
+         rep.space = "XY-variate", # plot in averaged subspace
+         group = transcript_d3g$group, # colour by time group
+         pch = as.factor(transcript_d3g$sample), # select symbol
+         col.per.group = color.mixo(1:2),                      # by dose group
+         legend = TRUE, legend.title = 'Time', legend.title.pch = 'Dose')
+
+color.edge <- color.GreenRed(50)  # set the colours of the connecting lines
+
+# X11() # To open a new window for Rstudio
+network(final.spls.d3, comp = 1,
+        cutoff = 0.7, # only show connections with a correlation above 0.7
+        shape.node = c("rectangle", "circle"),
+        graph.scale = 0.15,
+        size.node = .5,
+        color.node = c("cyan", "pink"),
+        color.edge = color.edge,
+        save = 'png', # save as a png to the current working directory
+        name.save = 'MixOmics_Network_dose_3_size0.25')
+
+cim(final.spls.d3, comp = 1, xlab = "Cytokines", ylab = "mRNA", save = 'pdf', name.save = 'mixOmics_heatmap_dose_3' )
+
+
+
+```
+
+## SPLS analysis group-wise
+
+```{r}
+
+
+
+
 
 ```
 
