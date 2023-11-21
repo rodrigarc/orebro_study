@@ -56,6 +56,9 @@ options(stringsAsFactors = FALSE)
 ## Loading libraries
 
 ```{r, results='hide'}
+library(tidyr)
+library(ComplexHeatmap)
+library(GeneOverlap)
 library(data.table)
 library(kableExtra)
 library(forcats)
@@ -83,13 +86,14 @@ library(clusterProfiler)
 library(enrichplot)
 library(pathview)
 library(ggprism)
+library(msigdbr)
 ```
 
 ## Load and wrangle raw counts
 
 ```{r, results='hide'}
 # Load raw counts
-counts_raw <- data.table::fread("../data/processed_data_nfcore/salmon/salmon.merged.gene_counts.tsv",
+counts_raw <- data.table::fread("../data/processed_data_nfcore/batch_1-2/salmon/salmon.merged.gene_counts.tsv",
                                   header = TRUE, sep = "\t") %>% 
   as.data.frame() %>%
   select(-gene_id)
@@ -110,7 +114,7 @@ counts_raw <- dplyr::select(counts_raw, -c(gene_name))
 
 ```{r, results='hide'}
 # Load sample metadata
-sampleTable <- read.table("../data/metadata/sample_metadata.csv", 
+sampleTable <- read.table("../data/metadata/sample_metadata_1.csv", 
                           sep = ",", header = TRUE) %>%
   dplyr::select(-c(age, sex))
 
@@ -235,7 +239,7 @@ Removing reads with the log2 of the counts per million (cpm) lower than 1 (= 458
 
 ```{r}
 meanLog2CPM <- rowMeans(log2(cpm(counts_raw) + 1))
-counts_filtered <- counts_raw[meanLog2CPM > 1, ]
+counts_filtered <- counts_raw[meanLog2CPM > 1,]
 
 hist(rowSums(counts_raw > 3), main = title("Raw Counts"))
 hist(rowSums(counts_filtered > 3), main = title("Filtered Counts"))
@@ -295,6 +299,7 @@ Generating three separate DESeq objects with different design parameters to allo
 
 ```{r, results='hide'}
 # Remove vaccine/sars-cov-2 related genes
+counts_filtered <- counts_filtered[!grepl("vaccine|spike|sars_cov", rownames(counts_filtered)),]
 
 # Prepare for DESeq by creating new variables and factorizing 
 sampleTable <- sampleTable %>%
@@ -304,7 +309,7 @@ sampleTable <- sampleTable %>%
     conditions = factor(conditions),
     time = factor(time),
     sex = factor(sex),
-    dose = factor(dose),
+    dose = factor(dose, levels = c("0_dose1","24_dose1", "0_dose2", "24_dose2", "0_dose3", "24_dose3", "48_dose3")),
     group = factor(group),
     batch = factor(batch)
   )
@@ -326,6 +331,12 @@ dds3 <- DESeqDataSetFromMatrix(
   countData = round(counts_filtered),
   colData = as.data.frame(sampleTable),
   design = ~ sex + age + batch + dose
+)
+
+dds4 <- DESeqDataSetFromMatrix(
+  countData = round(counts_filtered),
+  colData = as.data.frame(sampleTable),
+  design = ~ sex + age + batch + dose + group + dose:group
 )
 ```
 
@@ -472,11 +483,13 @@ Differential Gene Expression Analysis using DESeq2. Comparing parameters; dose, 
 dds1 <- DESeq(dds1)
 dds2 <- DESeq(dds2)
 dds3 <- DESeq(dds3)
+ddsTC <- DESeq(dds4, test = "LRT", reduced = ~ dose + group)
 
 # Contrast
 resultsNames(dds1)
 resultsNames(dds2)
 resultsNames(dds3)
+resultsNames(ddsTC)
 
 # Create function for makings comparisons with default being conditions and dds1
 compare_DEGs <- function(variable1, variable2, condition = "conditions", dds = dds1) {
@@ -516,6 +529,38 @@ d1 <- compare_DEGs("24_dose1", "0_dose1", condition = "dose", dds = dds3)
 d2 <- compare_DEGs("24_dose2", "0_dose2", condition = "dose", dds = dds3)
 d3_24 <- compare_DEGs("24_dose3", "0_dose3", condition = "dose", dds = dds3)
 d3_48 <- compare_DEGs("48_dose3", "0_dose3", condition = "dose", dds = dds3)
+
+# Resultds dds4 intercept
+
+resTC <- results(ddsTC)
+```
+
+#### Test intercept 
+
+```{r}
+#interesting genes related to complement
+fiss <- plotCounts(dds1,  "ENSG00000289768", 
+                   intgroup = c("dose","group"), returnData = TRUE, transform = FALSE, normalized = TRUE, replaced = FALSE)
+ggplot(fiss,
+  aes(x = dose, y = count, color = group, group = group)) + 
+  geom_point() + stat_summary(fun.y=mean, geom="line") +
+  scale_y_log10()
+
+betas <- coef(ddsTC)
+topGenes <- head(order(resTC$padj),20)
+mat <- betas[topGenes, -c(1,2)]
+thr <- 3 
+mat[mat < -thr] <- -thr
+mat[mat > thr] <- thr
+pheatmap(mat, breaks=seq(from=-thr, to=thr, length=101),
+         cluster_col=FALSE, scale = "row")
+
+test <- as.tibble(merge(neg_d2, pos_d2, by=0, all=T, suffix = c("_neg", "_pos"))) 
+
+test %>%
+  filter((log2FoldChange_neg > 0 & log2FoldChange_pos < 0), padj_neg < 0.05) %>%
+  pull(Row.names)
+
 ```
 
 ### Volcano plots
@@ -675,7 +720,7 @@ enrichment_list_down <- lapply(results_list_plot, function(x) {
 
 gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
 #gmt.hallmark <- read.gmt("../data/metabolic_transcriptionmodule/MgSig_Hallmark.gmt")
-#gmt.reactome <- read.gmt("../data/metabolic_transcriptionmodule/MSigDB_reactome.gmt")
+gmt.reactome <- read.gmt("../data/metabolic_transcriptionmodule/MSigDB_reactome.gmt")
 ```
 
 #### Over-Representation Analysis
@@ -807,7 +852,7 @@ list_gse <- lapply(ls_processed, function(x) {
 ```
 
 #### Gene Set Enrichment MSigDb Reactome gene sets
-```{r, include=FALSE}
+```{r, eval==FALSE}
 list_gse_reactome <- lapply(ls_processed, function(x) {
   GSEA(
     geneList = x,
@@ -1021,97 +1066,248 @@ Reactome_heatmap <- matrix(as.numeric(to_heatmap), ncol = ncol(to_heatmap)) %>%
       plot = Reactome_heatmap)
 ```
 
-#### Venn Diagram of DEGs
+## Jaccard index of differentially expressed genes
 
-```{r, venn_diagram}
-#extract_degs_names <- function(x) {
-#  subsetted <- results_list_plot[[x]] %>%
-#    tibble::rownames_to_column("gene_symbol") %>%
-#    filter(log2FoldChange > 1 & padj < 0.05) %>%
-#    select(gene_symbol, log2FoldChange)
-#  return(subsetted)
-#}
-#
-#degs_names <- lapply(names(results_list_plot), extract_degs_names)
-#names(degs_names) <- names(results_list_plot)
-#to_venn <- list(
-#  conv = degs_names[["Conv 0-24 hours"]][[1]],
-#  naive = degs_names[["Naïve 0-24 hours"]][[1]]
-#)
-
-degs_names <- lapply(names(results_list_plot), extract_degs_names)
-names(degs_names) <- names(results_list_plot)
-to_venn_doses <- list(
-  dose1 = degs_names[["Dose 1 0-24 hours"]][[1]],
-  dose2 = degs_names[["Dose 2 0-24 hours"]][[1]],
-  dose3 = degs_names[["Dose 3 0-24 hours"]][[1]]
-)
-to_venn_group <- list(
-  conv = degs_names[["Conv 0-24 hours"]][[1]],
-  naive = degs_names[["Naïve 0-24 hours"]][[1]]
-)
-
-ggVennDiagram(to_venn_group, show_intersect = TRUE)
-```
-
-```{r, echo=FALSE, results='hide'}
-ggVennDiagram(to_venn_group, show_intersect = TRUE)
-# save vendiagram
-   ggsave(
-      filename = paste0("../", figures.dir,"ggvendiagram_dose.pdf"),
-      height = 7, width = 7)
-
-ggVennDiagram(to_venn_doses, show_intersect = TRUE)
-# save vendiagram
-   ggsave(
-      filename = paste0("../", figures.dir,"ggvendiagram_dose.pdf"),
-      height = 7, width = 7)
-```
-
-## Overrepresentation of gene sets
-
-```{r degs_overrepresentation}
-union_doses <- Reduce(base::intersect,to_venn_doses)
-union_group <- Reduce(base::intersect,to_venn_group)
-unique_conv <- base::setdiff(to_venn_group[[1]],
-                              to_venn_group[[2]])
-unique_dose2 <- base::setdiff(to_venn_doses[[2]],
-                              to_venn_doses[[3]])
-
-list_ema <- list("union_doses" = union_doses, 
-                 "union_group" = union_group, 
-                 "unique_conv" = unique_conv, 
-                 "unique_dose2" = unique_dose2)
-enrich_plot_save <- function(x) {
-  name_plot <- x
-  x <- list_ema[[x]]
-  go_enrich <- enrichGO(gene = x, 
-           OrgDb = organism,
-           keyType = 'SYMBOL',
-           ont = "BP",
-           pvalueCutoff = 0.05,
-           qvalueCutoff = 0.10)
-
-#go_enrich_doses <- enricher(gene = unique_dose2,
-                  #    OrgDb = organism, 
-                   #   keyType = 'SYMBOL',
-#                      TERM2GENE = gmt,
-#                     pvalueCutoff = 0.05, 
-#                      qvalueCutoff = 0.10)
-
-  edox2 <- pairwise_termsim(go_enrich)
-
-  emapplot(edox2, layout = "kk", showCategory = 10) +
-    scale_color_viridis_c() +
-    labs(color = "p adjusted", size = "# genes")
-  
-  ggsave(
-      filename = paste0("../", figures.dir, name_plot,"cmeplot.pdf"),
-      height = 7, width = 7)
+```{r, jaccard_index}
+extract_gene_names <- function(x) {
+  subsetted <- results_list_plot[[x]] %>%
+    tibble::rownames_to_column("gene_symbol") %>%
+    select(gene_symbol, log2FoldChange, padj)
+  return(subsetted)
 }
 
-lapply(names(list_ema), enrich_plot_save)
+gene_names <- lapply(names(results_list_plot), extract_gene_names)
+names(gene_names) <- names(results_list_plot)
 
+gene_names_filt <- gene_names[c("Naïve Dose 1 0-24 hours", "Naïve Dose 2 0-24 hours", 
+                               "Naïve Dose 3 0-24 hours","Naïve Dose 3 0-48 hours", 
+                               "Conv Dose 1 0-24 hours", "Conv Dose 2 0-24 hours", 
+                               "Conv Dose 3 0-24 hours", "Conv Dose 3 0-48 hours")]
+
+gene_names_df_filt <- rbindlist(gene_names_filt, fill = TRUE, idcol = "group_timepoint") %>%
+  mutate(timepoint = case_when(grepl("Dose 1", group_timepoint) ~ "Dose 1",
+                               grepl("Dose 2", group_timepoint) ~ "Dose 2",
+                               grepl("Dose 3 0-24", group_timepoint) ~ "Dose 3",
+                               grepl("Dose 3 0-48", group_timepoint) ~ "Dose 3 48h"),
+         group = case_when(grepl("Conv", group_timepoint) ~ "Conv",
+                           grepl("Naïve", group_timepoint) ~ "Naïve"))
+
+gene_names_sign_df <- gene_names_df_filt %>%
+  select(-group_timepoint) %>%
+  pivot_wider(names_from = group, values_from = c(padj, log2FoldChange), names_glue = "{.value}_{group}") %>%
+  mutate(
+    # Categorize genes into 'degs_presence' based on significance and regulation
+    degs_presence = case_when(
+      padj_Naïve < 0.05 & padj_Conv < 0.05  & (log2FoldChange_Conv * log2FoldChange_Naïve) > 0 ~ "Both significant",
+      padj_Naïve < 0.05 ~ "Naïve only",
+      padj_Conv < 0.05 ~ "Conv only",
+      TRUE ~ "non_significant"
+    ),
+    regulation = case_when(
+      log2FoldChange_Conv > 0 & log2FoldChange_Naïve > 0 ~ "Upregulated",
+      log2FoldChange_Conv < 0 & log2FoldChange_Naïve < 0 ~ "Downregulated",
+      log2FoldChange_Conv > 0 & log2FoldChange_Naïve < 0 ~ "Upregulated Conv",
+      log2FoldChange_Conv < 0 & log2FoldChange_Naïve > 0 ~ "Upregulated Naïve"
+    )
+  )
+```
+
+```{r}
+
+filtered_gene_doses <- gene_names_sign_df %>%
+  filter(degs_presence != "non_significant") 
+
+g1 <- filtered_gene_doses %>% 
+  filter(!timepoint %in% c("Dose 1", "Dose 3 48h")) %>%
+  ggplot(aes(log2FoldChange_Naïve, log2FoldChange_Conv, color = degs_presence)) +
+  geom_point(data = subset(filtered_gene_doses, degs_presence == "Naïve only"), alpha = .3) +
+  geom_point(data = subset(filtered_gene_doses, degs_presence == "Conv only"), alpha = .3) +
+  geom_point(data = subset(filtered_gene_doses, degs_presence == "Both significant"), alpha = .3) +
+  scale_color_viridis_d() +
+  scale_y_continuous(limits = c(-6, 6)) +
+  scale_x_continuous(limits = c(-6, 6)) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~timepoint) +
+  theme_bw()
+
+g1
+
+ggsave(g1,filename = paste0("../", result.dir,"linear_relationship_fold_change.pdf"),
+      height = 7, width = 7)
+```
+
+```{r}
+degs <- lapply(gene_names_filt, function(x) x %>% filter(padj < 0.05, log2FoldChange > 1) %>% pull(gene_symbol))
+degs[["Naïve Dose 1 0-24 hours"]] <- "no_degs"
+
+gom_obj <- newGOM(degs, degs)
+
+filtered_degs_matrix <- getMatrix(gom_obj, "Jaccard")
+```
+
+
+```{r}
+
+my_palette <- colorRampPalette(c("#265891", "#F6FF92", "#B80F20"))(n = 50)
+# order matrix based on cluster
+od <-  hclust(dist(filtered_degs_matrix), method = "ward.D2")$order
+filtered_degs_matrix_ordered <- filtered_degs_matrix[od, od]
+
+# Define color values for different row annotations
+row_col_group <- c("Naïve" = "#A9A9A9", "Conv" = "#A9CAF6")
+row_col_time <- c("Dose 1 0-24 hours" = "#6A83B5", 
+                  "Dose 2 0-24 hours" = "#CC8963",
+                  "Dose 3 0-24 hours" = "#7B9E87",
+                  "Dose 3 0-48 hours" = "#A695C7")
+
+# Create row annotations for heatmap
+row_anno <- rowAnnotation(
+  timepoint = gsub(".*? (.*)$", "\\1", rownames(filtered_degs_matrix_ordered)),
+  group = gsub("^(.*?) .*", "\\1", rownames(filtered_degs_matrix_ordered)),
+  col = list(timepoint = row_col_time, group = row_col_group),
+  annotation_legend_param = list(
+    timepoint = list(title = "Timepoint"),
+    group = list(title = "Group")
+  )
+)
+
+heatmap1 <- Heatmap(filtered_degs_matrix_ordered,  border = F, 
+                    rect_gp = gpar(type = "none"), column_dend_side = "bottom",
+                    show_row_names = FALSE, show_column_names = FALSE,
+                    name = "Jaccard similarity index",
+                    right_annotation = row_anno, col = my_palette,
+    cell_fun = function(j, i, x, y, w, h, fill) {
+        if(as.numeric(x) <= 1 - as.numeric(y)) {
+            grid.rect(x, y, w, h, gp = gpar(fill = fill, col = fill))
+        }
+    })
+heatmap1
+{
+  pdf(file = paste0("../",result.dir, "jaccard_index_plot.pdf"), height = 5, width = 7)
+  draw(heatmap1)
+  dev.off()
+}
+```
+
+## Cytokine heatmap
+
+4 gene sets were used based on the groups of  Chemokine (45), Interferon (33), Interleukins (43), and TNF (18) ligands according to the HUGO gene nomenclature Committee.
+
+```{r}
+ls_gene_file <- list.files("../data/gene_sets", pattern = "231102", full.names = TRUE)
+ls_gene_sets <- lapply(ls_gene_file, read.csv, header = TRUE)
+names(ls_gene_sets) <- sub("^(?:[^_]+_){2}([^_]+)_.*$", "\\1", ls_gene_file)
+gene_sets <- rbindlist(ls_gene_sets, idcol = "gene_set", use.names = TRUE)
+
+cytokine_heatmap <- gene_names_sign_df %>%
+  pivot_longer(
+    cols = starts_with("padj_") | starts_with("log2FoldChange_"),
+    names_to = c(".value", "group"),
+    names_pattern = "([\\p{L}]+)_(\\w+)"
+  ) %>%
+  filter(gene_symbol %in% gene_sets$Approved_symbol) %>%
+  mutate(group = ifelse(group == "Na", "Naïve", group),
+         group_timepoint = paste(timepoint, group)) %>%
+  group_by(gene_symbol, timepoint) %>%
+  mutate(FoldChange_mean = case_when(degs_presence == "Both significant" ~ mean(FoldChange),
+                                     degs_presence == "non_significant" ~ min(FoldChange),
+                                     degs_presence %in% c("Conv only","Naïve only") ~ max(FoldChange))) %>%
+  ungroup()
+
+g2 <- cytokine_heatmap %>%
+  group_by(gene_symbol) %>%
+  filter(!all(degs_presence == "non_significant"),
+         regulation %in% c("Upregulated", "Downregulated")) %>%
+  ungroup() %>%
+  ggplot(aes(x = timepoint, y = gene_symbol, size = abs(FoldChange_mean), color = degs_presence)) +
+  geom_point() +
+  scale_color_manual(values = c("#D95F02", "#A9CAF6", "#A9A9A9", "grey90")) +
+  labs(x = "", y = "", size = "FoldChange\n(Absolute log2)", color = "Significance") +
+  theme_bw() +
+  facet_wrap(~regulation, scales = "free_y") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+
+ggsave(g2,filename = paste0("../", result.dir,"cytokine_degs.pdf"),
+      height = 3, width = 7)
+```
+## Transcription factors heatmap
+overrepresentation analysis of transcriptional factors
+
+```{r}
+
+msig_geneset <- msigdbr(species = "Homo sapiens", category = "C3")
+msig_geneset <- msig_geneset %>% filter(gs_subcat %in% c("TFT:GTRD", "TFT:TFT_Legacy"))
+tft_geneset <- msig_geneset %>%
+  dplyr::select(gs_name, gene_symbol) %>%
+  dplyr::rename(term = gs_name, gene = gene_symbol)
+
+annot <- ensembldb::select(EnsDb.Hsapiens.v86,
+  keys = keys(EnsDb.Hsapiens.v86),
+  columns = c('ENTREZID','SYMBOL'))
+
+## map names with TFs
+ora_tf <- lapply(degs, function(x) enricher(x, pvalueCutoff = 1,
+           pAdjustMethod = "fdr", 
+           qvalueCutoff = .2, 
+           TERM2GENE = tft_geneset))
+
+ora_tf_df <- lapply(ora_tf, data.frame)
+ora_tf_df_bind <- rbindlist(ora_tf_df, use.names = TRUE, idcol = "group_timepoint", fill = TRUE) %>% as.data.frame()
+```
+
+### Plot TF data
+```{r}
+
+ora_tf_df_bind <- ora_tf_df_bind %>%
+  mutate(timepoint = case_when(grepl("Dose 1", group_timepoint) ~ "Dose 1",
+                               grepl("Dose 2", group_timepoint) ~ "Dose 2",
+                               grepl("Dose 3 0-24", group_timepoint) ~ "Dose 3",
+                               grepl("Dose 3 0-48", group_timepoint) ~ "Dose 3 48h"),
+         group = case_when(grepl("Conv", group_timepoint) ~ "Conv",
+                           grepl("Naïve", group_timepoint) ~ "Naïve"),
+         timepoint_group = paste(timepoint, group, sep = "_"))
+
+# Create the ggplot with the reordered x-axis
+
+ora_tf_df_bind <-  ora_tf_df_bind %>%
+    filter(p.adjust < 0.05 & Count > 1) %>%
+    mutate(ID_cut = case_when(
+      grepl("TARGET", ID) ~ sub("_.*$", "", ID),
+      str_count(ID, "_") > 1 ~ sub("^[^_]*_(.*?)_.*$", "\\1", ID),
+      TRUE ~ sub("_.*$", "", ID),
+    ),
+    ID_cut = ifelse(ID_cut == "ICSBP", "IRF8/ICSBP", ID_cut)) %>%
+  filter(!(ID_cut %in% c("YNGTTNNNATT", "NFKAPPAB65", "NFKB"))) %>%
+    # Remove duplicated ID by selecting the gene set with lowest p_value
+    arrange(ID, p.adjust) %>%
+    distinct(ID, timepoint_group, .keep_all = TRUE)
+  
+ora_tf_df_bind %>%  
+  ggplot(aes(x = timepoint_group, y = ID_cut, fill = -log10(p.adjust))) +
+  geom_tile() +
+  theme_bw() +
+  scale_fill_viridis_c() +
+  labs(x = "", y = "", fill = "Adjusted p-value\n(-log10)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+
+
+ggsave(g2,filename = paste0("../", result.dir,"cytokine_degs.pdf"),
+      height = 3, width = 7)
+```
+
+## ORA tf cluster comparisons
+
+```{r}
+degs_entrez_id <- lapply(degs, function(x) plyr::mapvalues(x, from = annot$SYMBOL, to = annot$ENTREZID))
+
+ora_tf_compare <- compareCluster(degs, fun = "enrichPathway")
+xx <- compareCluster(degs_entrez_id, fun='enrichKEGG', organism='hsa')
+xx <- pairwise_termsim(xx)             
+p4 <- emapplot(xx, pie="count", cex_category=1.5, layout="kk")
+p4 + scale_fill_npg() 
+
+ggsave(filename = paste0("../", result.dir,"example_tf_degs.pdf"),
+      height = 10, width = 10)
 ```
 
 ## Vaccine detection in RNA-seq
