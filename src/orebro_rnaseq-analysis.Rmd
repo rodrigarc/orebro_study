@@ -100,7 +100,10 @@ counts_raw <- data.table::fread("../data/processed_data_nfcore/batch_1-2/salmon/
 
 
 colnames(counts_raw) <- sub("_L001|_L002", "",colnames(counts_raw))
-# Aggregate and sum up genes with same gene symbol (basically non-coding RNAs or ribosomic)
+# Filter for only protein coding genes or mitochondrial/ribosomic genes
+gene_id_metadata <- read.csv("../data/metadata/2023-11-222_mart_export_gene_ids_hsa.txt") %>% filter(Gene.type %in% c("Mt_rRNA", "Mt_rRNA", "protein_coding", "rRNA"))
+# Aggregate and sum up genes with same gene symbol (sum up isoform of genes)
+counts_raw <- counts_raw[counts_raw$gene_name %in% gene_id_metadata$Gene.name,]
 counts_raw <- aggregate(counts_raw[, -1], 
                         list(gene_name = counts_raw[, 1]), 
                         FUN = sum)
@@ -535,17 +538,9 @@ d3_48 <- compare_DEGs("48_dose3", "0_dose3", condition = "dose", dds = dds3)
 resTC <- results(ddsTC)
 ```
 
-#### Test intercept 
+#### Likelihood ratio test to check for interaction between dose and time
 
 ```{r}
-#interesting genes related to complement
-fiss <- plotCounts(dds1,  "ENSG00000289768", 
-                   intgroup = c("dose","group"), returnData = TRUE, transform = FALSE, normalized = TRUE, replaced = FALSE)
-ggplot(fiss,
-  aes(x = dose, y = count, color = group, group = group)) + 
-  geom_point() + stat_summary(fun.y=mean, geom="line") +
-  scale_y_log10()
-
 betas <- coef(ddsTC)
 topGenes <- head(order(resTC$padj),20)
 mat <- betas[topGenes, -c(1,2)]
@@ -1228,8 +1223,22 @@ g2 <- cytokine_heatmap %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
 
 ggsave(g2,filename = paste0("../", result.dir,"cytokine_degs.pdf"),
-      height = 3, width = 7)
+      height = 7, width = 7)
 ```
+
+### Generating examples of cytokine DEGs
+
+```{r degs_show}
+#interesting genes related to complement
+fiss <- plotCounts(dds1,  "ENSG00000289768", 
+                   intgroup = c("dose","group"), returnData = TRUE, transform = FALSE, normalized = TRUE, replaced = FALSE)
+ggplot(fiss,
+  aes(x = dose, y = count, color = group, group = group)) + 
+  geom_point() + stat_summary(fun.y=mean, geom="line") +
+  scale_y_log10()
+
+```
+
 ## Transcription factors heatmap
 overrepresentation analysis of transcriptional factors
 
