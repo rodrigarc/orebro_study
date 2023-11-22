@@ -57,6 +57,7 @@ options(stringsAsFactors = FALSE)
 
 ```{r, results='hide'}
 library(tidyr)
+library(ggsci)
 library(ComplexHeatmap)
 library(GeneOverlap)
 library(data.table)
@@ -100,10 +101,8 @@ counts_raw <- data.table::fread("../data/processed_data_nfcore/batch_1-2/salmon/
 
 
 colnames(counts_raw) <- sub("_L001|_L002", "",colnames(counts_raw))
-# Filter for only protein coding genes or mitochondrial/ribosomic genes
-gene_id_metadata <- read.csv("../data/metadata/2023-11-222_mart_export_gene_ids_hsa.txt") %>% filter(Gene.type %in% c("Mt_rRNA", "Mt_rRNA", "protein_coding", "rRNA"))
-# Aggregate and sum up genes with same gene symbol (sum up isoform of genes)
-counts_raw <- counts_raw[counts_raw$gene_name %in% gene_id_metadata$Gene.name,]
+# Aggregate and sum up genes with same gene symbol (basically different isoforms)
+
 counts_raw <- aggregate(counts_raw[, -1], 
                         list(gene_name = counts_raw[, 1]), 
                         FUN = sum)
@@ -1061,7 +1060,7 @@ Reactome_heatmap <- matrix(as.numeric(to_heatmap), ncol = ncol(to_heatmap)) %>%
       plot = Reactome_heatmap)
 ```
 
-## Jaccard index of differentially expressed genes
+## Fold change comparison between dose 2 and dose 3 
 
 ```{r, jaccard_index}
 extract_gene_names <- function(x) {
@@ -1110,36 +1109,73 @@ gene_names_sign_df <- gene_names_df_filt %>%
 ```{r}
 
 filtered_gene_doses <- gene_names_sign_df %>%
-  filter(degs_presence != "non_significant") 
+  filter(!timepoint %in% c("Dose 1", "Dose 3 48h"))
 
 g1 <- filtered_gene_doses %>% 
-  filter(!timepoint %in% c("Dose 1", "Dose 3 48h")) %>%
+  filter(degs_presence != "non_significant") %>%
   ggplot(aes(log2FoldChange_Naïve, log2FoldChange_Conv, color = degs_presence)) +
+  geom_point(data = subset(filtered_gene_doses, degs_presence == "non_significant"), alpha = .3, color = "grey80") +
   geom_point(data = subset(filtered_gene_doses, degs_presence == "Naïve only"), alpha = .3) +
   geom_point(data = subset(filtered_gene_doses, degs_presence == "Conv only"), alpha = .3) +
   geom_point(data = subset(filtered_gene_doses, degs_presence == "Both significant"), alpha = .3) +
   scale_color_viridis_d() +
   scale_y_continuous(limits = c(-6, 6)) +
   scale_x_continuous(limits = c(-6, 6)) +
-  geom_smooth(method = "lm", se = TRUE) +
+  geom_smooth(data = subset(filtered_gene_doses, degs_presence != "non_significant", se = TRUE), method = "lm") +
+  scale_color_npg() +
+  stat_cor(method = "pearson", cor.coef.name = "r", p.accuracy = 0.001)+
   facet_wrap(~timepoint) +
-  theme_bw()
+  theme_prism(base_line_size = .5, base_fontface = "plain") +
+  theme(axis.ticks = element_line(size = .5), legend.position = "top",
+        aspect.ratio = 1)
 
 g1
 
-ggsave(g1,filename = paste0("../", result.dir,"linear_relationship_fold_change.pdf"),
+ggsave(g1,filename = paste0("../", result.dir,"linear_relationship_fold_change_main.pdf"),
       height = 7, width = 7)
 ```
 
+## Supplemental figure fold change comparison
+
+```{r}
+
+filtered_gene_doses <- gene_names_sign_df %>%
+  filter(timepoint %in% c("Dose 1", "Dose 3 48h"))
+
+g2 <- filtered_gene_doses%>% 
+  filter(degs_presence != "non_significant") %>%
+  ggplot(aes(log2FoldChange_Naïve, log2FoldChange_Conv, color = degs_presence)) +
+  geom_point(data = subset(filtered_gene_doses, degs_presence == "non_significant"), alpha = .3, color = "grey80") +
+  geom_point(data = subset(filtered_gene_doses, degs_presence == "Naïve only"), alpha = .3) +
+  geom_point(data = subset(filtered_gene_doses, degs_presence == "Conv only"), alpha = .3) +
+  geom_point(data = subset(filtered_gene_doses, degs_presence == "Both significant"), alpha = .3) +
+  scale_color_viridis_d() +
+  scale_y_continuous(limits = c(-6, 6)) +
+  scale_x_continuous(limits = c(-6, 6)) +
+  geom_smooth(data = subset(filtered_gene_doses, degs_presence != "non_significant", se = TRUE), method = "lm") +
+  scale_color_npg() +
+  stat_cor(method = "pearson", cor.coef.name = "r", p.accuracy = 0.001)+
+  facet_wrap(~timepoint) +
+  theme_prism(base_line_size = .5, base_fontface = "plain") +
+  theme(axis.ticks = element_line(size = .5), legend.position = "top",
+        aspect.ratio = 1)
+
+g2
+
+ggsave(g2,filename = paste0("../", result.dir,"linear_relationship_fold_change_supp.pdf"),
+      height = 7, width = 7)
+```
 ```{r}
 degs <- lapply(gene_names_filt, function(x) x %>% filter(padj < 0.05, log2FoldChange > 1) %>% pull(gene_symbol))
-degs[["Naïve Dose 1 0-24 hours"]] <- "no_degs"
+#degs[["Naïve Dose 1 0-24 hours"]] <- "no_degs"
+degs <- degs[-c(1,4,8)]
 
 gom_obj <- newGOM(degs, degs)
 
 filtered_degs_matrix <- getMatrix(gom_obj, "Jaccard")
 ```
 
+## Jaccard index of differentially expressed genes
 
 ```{r}
 
@@ -1150,10 +1186,10 @@ filtered_degs_matrix_ordered <- filtered_degs_matrix[od, od]
 
 # Define color values for different row annotations
 row_col_group <- c("Naïve" = "#A9A9A9", "Conv" = "#A9CAF6")
-row_col_time <- c("Dose 1 0-24 hours" = "#6A83B5", 
-                  "Dose 2 0-24 hours" = "#CC8963",
-                  "Dose 3 0-24 hours" = "#7B9E87",
-                  "Dose 3 0-48 hours" = "#A695C7")
+row_col_time <- c("Dose 1 0-24 hours" = "#5e4fa2", 
+                  "Dose 2 0-24 hours" = "#fdae61",
+                  "Dose 3 0-24 hours" = "#9e0142",
+                  "Dose 3 0-48 hours" = "#abdda4")
 
 # Create row annotations for heatmap
 row_anno <- rowAnnotation(
@@ -1172,7 +1208,7 @@ heatmap1 <- Heatmap(filtered_degs_matrix_ordered,  border = F,
                     name = "Jaccard similarity index",
                     right_annotation = row_anno, col = my_palette,
     cell_fun = function(j, i, x, y, w, h, fill) {
-        if(as.numeric(x) <= 1 - as.numeric(y)) {
+        if(as.numeric(x) <= 1.1 - as.numeric(y)) {
             grid.rect(x, y, w, h, gp = gpar(fill = fill, col = fill))
         }
     })
@@ -1220,23 +1256,13 @@ g2 <- cytokine_heatmap %>%
   labs(x = "", y = "", size = "FoldChange\n(Absolute log2)", color = "Significance") +
   theme_bw() +
   facet_wrap(~regulation, scales = "free_y") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
-
+  theme_prism(base_line_size = .5, base_fontface = "plain", axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5), legend.position = "right",
+        aspect.ratio = 1,
+        legend.title = element_text())
+g2
 ggsave(g2,filename = paste0("../", result.dir,"cytokine_degs.pdf"),
       height = 7, width = 7)
-```
-
-### Generating examples of cytokine DEGs
-
-```{r degs_show}
-#interesting genes related to complement
-fiss <- plotCounts(dds1,  "ENSG00000289768", 
-                   intgroup = c("dose","group"), returnData = TRUE, transform = FALSE, normalized = TRUE, replaced = FALSE)
-ggplot(fiss,
-  aes(x = dose, y = count, color = group, group = group)) + 
-  geom_point() + stat_summary(fun.y=mean, geom="line") +
-  scale_y_log10()
-
 ```
 
 ## Transcription factors heatmap
@@ -1254,6 +1280,8 @@ annot <- ensembldb::select(EnsDb.Hsapiens.v86,
   keys = keys(EnsDb.Hsapiens.v86),
   columns = c('ENTREZID','SYMBOL'))
 
+degs <- lapply(degs, function(x) plyr::mapvalues(x, annot$GENEID, annot$SYMBOL, warn_missing = FALSE))
+
 ## map names with TFs
 ora_tf <- lapply(degs, function(x) enricher(x, pvalueCutoff = 1,
            pAdjustMethod = "fdr", 
@@ -1266,7 +1294,6 @@ ora_tf_df_bind <- rbindlist(ora_tf_df, use.names = TRUE, idcol = "group_timepoin
 
 ### Plot TF data
 ```{r}
-
 ora_tf_df_bind <- ora_tf_df_bind %>%
   mutate(timepoint = case_when(grepl("Dose 1", group_timepoint) ~ "Dose 1",
                                grepl("Dose 2", group_timepoint) ~ "Dose 2",
@@ -1291,30 +1318,32 @@ ora_tf_df_bind <-  ora_tf_df_bind %>%
     arrange(ID, p.adjust) %>%
     distinct(ID, timepoint_group, .keep_all = TRUE)
   
-ora_tf_df_bind %>%  
+g3 <- ora_tf_df_bind %>%  
   ggplot(aes(x = timepoint_group, y = ID_cut, fill = -log10(p.adjust))) +
   geom_tile() +
   theme_bw() +
-  scale_fill_viridis_c() +
+  scale_fill_gradient2(low = "#265891", mid = "white", high = "#B80F20") +
   labs(x = "", y = "", fill = "Adjusted p-value\n(-log10)") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
-
-
-ggsave(g2,filename = paste0("../", result.dir,"cytokine_degs.pdf"),
-      height = 3, width = 7)
+  theme_prism(base_line_size = .5, base_fontface = "plain", axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5), legend.position = "right",
+        aspect.ratio = 1,
+        legend.title = element_text())
+g3
+ggsave(g3, filename = paste0("../", result.dir,"transcription_factors_ORA.pdf"),
+      height = 7, width = 7)
 ```
 
 ## ORA tf cluster comparisons
 
 ```{r}
-degs_entrez_id <- lapply(degs, function(x) plyr::mapvalues(x, from = annot$SYMBOL, to = annot$ENTREZID))
+degs_entrez_id <- lapply(degs, function(x) plyr::mapvalues(x, from = annot$SYMBOL, to = annot$ENTREZID, warn_missing = FALSE))
 
 ora_tf_compare <- compareCluster(degs, fun = "enrichPathway")
-xx <- compareCluster(degs_entrez_id, fun='enrichKEGG', organism='hsa')
-xx <- pairwise_termsim(xx)             
+compared_cluster <- compareCluster(degs_entrez_id, fun='enrichKEGG', organism='hsa')
+cluster_termsim <- pairwise_termsim(compared_cluster, method = "JC")             
 p4 <- emapplot(xx, pie="count", cex_category=1.5, layout="kk")
 p4 + scale_fill_npg() 
-
+cnetplot(xx, )
 ggsave(filename = paste0("../", result.dir,"example_tf_degs.pdf"),
       height = 10, width = 10)
 ```
