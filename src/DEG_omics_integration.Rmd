@@ -139,7 +139,6 @@ cytokine_data <- arrange(cytokine_data, subject_ID)
 ## Data Pre-processing
 ```{r}
 
-
 tds <- select(transcript_data, c(1, 3, 6:length(transcript_data))) #selects the sample_ID, group, and gene data 
 
 cyto_ds <- select(cytokine_data, c(1, 3:35)) # Selects sample_ID, group, and cytokine data
@@ -258,7 +257,8 @@ Spearman correlation tests by dose both groups
 ```{r}
 
 #Spearman correlation test transcripts and cytokines after DEG filter Dose 1
-spearman_deg <- corr.test(d1_spear, cyto_spear_d1, method ="spearman", adjust ="fdr") 
+spearman_deg <- suppressWarnings(corr.test(d1_spear, cyto_spear_d1, method ="spearman", adjust ="fdr"))
+
 hist(spearman_deg$p)
 #list of logical values 
 deg_sig_list <- spearman_deg$p.adj < 0.05 
@@ -272,7 +272,8 @@ as.data.frame(spearman_deg$r)[which(spearman_deg$r > 0.8),]
 
 
 #Spearman correlation test transcripts and cytokines after DEG filter Dose 2
-spearman_deg2 <- corr.test(d2_spear, cyto_spear_d2, method ="spearman", adjust ="fdr", ci = FALSE) 
+
+spearman_deg2 <- suppressWarnings(corr.test(d2_spear, cyto_spear_d2, method ="spearman", adjust ="fdr", ci = FALSE))
 #Generates list of p-values for each gene correlated with the proteins
 deg_sig_values2 <- spearman_deg2$p
 #list of logical values 
@@ -283,7 +284,8 @@ sum(spearman_deg2$p.adj < 0.05, na.rm = T )
 hist(deg_sig_values2)
 
 #Spearman correlation test transcripts and cytokines after DEG filter Dose 3
-spearman_deg3 <- corr.test(d3_spear, cyto_spear_d3, method ="spearman", adjust ="fdr", ci = FALSE) 
+
+spearman_deg3 <- suppressWarnings(corr.test(d3_spear, cyto_spear_d3, method ="spearman", adjust ="fdr", ci = FALSE))
 #Generates list of p-values for each gene correlated with the proteins
 deg_sig_values3 <- spearman_deg3$p
 #list of logical values 
@@ -315,7 +317,8 @@ filtered_r_value_matrix <- as.data.frame(filtered_r_value_matrix) %>% select(whe
 filtered_r_matrix <- na.omit(filtered_r_value_matrix)
 
 #Plotting correlations
-corrplot(spearman_deg2$r)
+
+#corrplot(spearman_deg2$r)
 corrplot(t(filtered_r_matrix), insig = 'blank')
 
 #Saving plots
@@ -355,7 +358,8 @@ filtered_r_value_matrix3 <- spearman_deg3$r[selected_rows3, ]
 filtered_r_value_matrix3 <- as.data.frame(filtered_r_value_matrix3) %>% select(where(not_all_na))
 filtered_r_matrix3 <- na.omit(filtered_r_value_matrix3)
 
-corrplot(spearman_deg3$r)
+
+#corrplot(spearman_deg3$r)
 corrplot(t(filtered_r_matrix3))
 
 {
@@ -492,7 +496,8 @@ cyto_spearsd3_nai <- select(cyto_d3_nai, c(3:length(cyto_d3_nai)))
 ```{r}
 
 #Spearman correlation test transcripts and cytokines after DEG filter: D1+
-spearman_deg1_exp <- corr.test(d1_spears_exp, cyto_spearsd1_exp, method ="spearman", adjust ="fdr", ci = FALSE) 
+
+spearman_deg1_exp <- suppressWarnings(corr.test(d1_spears_exp, cyto_spearsd1_exp, method ="spearman", adjust ="fdr", ci = FALSE))
 #Generates list of p-values for each gene correlated with the proteins
 deg_sig_values1_exp <- spearman_deg1_exp$p
 #list of logical values 
@@ -500,17 +505,18 @@ deg_sig_list1_exp <- spearman_deg1_exp$p.adj < 0.05
 
 sum(spearman_deg1_exp$p.adj < 0.05, na.rm = T )
 
-#Spearman correlation test transcripts and cytokines after DEG filter: D1-, 0 DEGs code breaks
-spearman_deg1_nai <- corr.test(d1_spears_nai, cyto_spearsd1_nai, method ="spearman", adjust ="fdr", ci = FALSE)
-#Generates list of p-values for each gene correlated with the proteins
-deg_sig_values1_nai <- spearman_deg1_nai$p
-#list of logical values
-deg_sig_list1_nai <- spearman_deg1_nai$p.adj < 0.05
 
-sum(spearman_deg1_nai$p.adj < 0.05, na.rm = T )
+# #Spearman correlation test transcripts and cytokines after DEG filter: D1-, 0 DEGs code breaks
+# spearman_deg1_nai <- corr.test(d1_spears_nai, cyto_spearsd1_nai, method ="spearman", adjust ="fdr", ci = FALSE)
+# #Generates list of p-values for each gene correlated with the proteins
+# deg_sig_values1_nai <- spearman_deg1_nai$p
+# #list of logical values
+# deg_sig_list1_nai <- spearman_deg1_nai$p.adj < 0.05
+# 
+# sum(spearman_deg1_nai$p.adj < 0.05, na.rm = T )
 
 #Spearman correlation test transcripts and cytokines after DEG filter: D2+
-spearman_deg2_exp <- corr.test(d2_spears_exp, cyto_spearsd2_pos, method ="spearman", adjust ="fdr", ci = FALSE) 
+spearman_deg2_exp <- suppressWarnings(corr.test(d2_spears_exp, cyto_spearsd2_exp, method ="spearman", adjust ="fdr", ci = FALSE))
 #Generates list of p-values for each gene correlated with the proteins
 deg_sig_values2_exp <- spearman_deg2_exp$p
 #list of logical values 
@@ -519,7 +525,8 @@ deg_sig_list2_exp <- spearman_deg2_exp$p.adj < 0.05
 sum(spearman_deg2_exp$p.adj < 0.05, na.rm = T )
 
 #Spearman correlation test transcripts and cytokines after DEG filter: D2-
-spearman_deg2_nai <- corr.test(d2_spears_nai, cyto_spearsd2_nai, method ="spearman", adjust ="fdr", ci = FALSE) 
+
+spearman_deg2_nai <- suppressWarnings(corr.test(d2_spears_nai, cyto_spearsd2_nai, method ="spearman", adjust ="fdr", ci = FALSE))
 #Generates list of p-values for each gene correlated with the proteins
 deg_sig_values2_nai <- spearman_deg2_nai$p
 #list of logical values 
@@ -528,7 +535,8 @@ deg_sig_list2_nai <- spearman_deg2_nai$p.adj < 0.05
 sum(spearman_deg2_nai$p.adj < 0.05, na.rm = T )
 
 #Spearman correlation test transcripts and cytokines after DEG filter: D3+
-spearman_deg3_exp <- corr.test(d3_spears_exp, cyto_spearsd3_exp, method ="spearman", adjust ="fdr", ci = FALSE) 
+
+spearman_deg3_exp <- suppressWarnings(corr.test(d3_spears_exp, cyto_spearsd3_exp, method ="spearman", adjust ="fdr", ci = FALSE)) 
 #Generates list of p-values for each gene correlated with the proteins
 deg_sig_values3_exp <- spearman_deg3_exp$p
 #list of logical values 
@@ -537,7 +545,8 @@ deg_sig_list3_exp <- spearman_deg3_exp$p.adj < 0.05
 sum(spearman_deg3_exp$p.adj < 0.05, na.rm = T )
 
 #Spearman correlation test transcripts and cytokines after DEG filter: D3-
-spearman_deg3_nai <- corr.test(d3_spears_nai, cyto_spearsd3_nai, method ="spearman", adjust ="fdr", ci = FALSE) 
+
+spearman_deg3_nai <- suppressWarnings(corr.test(d3_spears_nai, cyto_spearsd3_nai, method ="spearman", adjust ="fdr", ci = FALSE))
 #Generates list of p-values for each gene correlated with the proteins
 deg_sig_values3_nai <- spearman_deg3_nai$p
 #list of logical values 
@@ -569,33 +578,35 @@ corrplot(r_matrix_filtered_exp1 )
   dev.off()
 }
 
-# Identify rows where any of the columns have significant correlations: D1-
- selected_rows_nai1 <- apply(deg_sig_list1_nai, 1, any)
- 
- # Filter both matrices based on selected rows, removing NAs
- filtered_r_value_matrix_nai1 <- spearman_deg1_nai$r[selected_rows_nai1, ]
- filtered_r_value_matrix_nai1 <- as.data.frame(filtered_r_value_matrix_nai1)
- 
- filtered_r_value_matrix_nai1 <- as.data.frame(filtered_r_value_matrix_nai1) %>% select(where(not_all_na))
- 
- filtered_r_matrix_nai1 <- na.omit(filtered_r_value_matrix_nai1)
 
-#Plots
-r_matrix_filtered_nai1 <- t(filtered_r_matrix_nai1)
-corrplot(r_matrix_filtered_nai1)
-
-{
-  pdf(paste0("../",result.dir,"spearman_dose1_naive.pdf"),  width = 25, height = 25)
-  corrplot(r_matrix_filtered_nai1)
-  dev.off()
-}
-
+# # Identify rows where any of the columns have significant correlations: D1-
+#  selected_rows_nai1 <- apply(deg_sig_list1_nai, 1, any)
+# 
+#  # Filter both matrices based on selected rows, removing NAs
+#  filtered_r_value_matrix_nai1 <- spearman_deg1_nai$r[selected_rows_nai1, ]
+#  filtered_r_value_matrix_nai1 <- as.data.frame(filtered_r_value_matrix_nai1)
+# 
+#  filtered_r_value_matrix_nai1 <- as.data.frame(filtered_r_value_matrix_nai1) %>% select(where(not_all_na))
+# 
+#  filtered_r_matrix_nai1 <- na.omit(filtered_r_value_matrix_nai1)
+# 
+# #Plots
+# r_matrix_filtered_nai1 <- t(filtered_r_matrix_nai1)
+# corrplot(r_matrix_filtered_nai1)
+# 
+# {
+#   pdf(paste0("../",result.dir,"spearman_dose1_naive.pdf"),  width = 25, height = 25)
+#   corrplot(r_matrix_filtered_nai1)
+#   dev.off()
+# }
+# 
 
 # Identify rows where any of the columns have significant correlations: D2+
 selected_rows_exp2 <- apply(deg_sig_list2_exp, 1, any)
 
 # Filter both matrices based on selected rows, removing NAs
-filtered_r_value_matrix_exp2 <- spearman_deg2_pos$r[selected_rows_exp2, ]
+
+filtered_r_value_matrix_exp2 <- spearman_deg2_exp$r[selected_rows_exp2, ]
 filtered_r_value_matrix_exp2 <- as.data.frame(filtered_r_value_matrix_exp2) %>% select(where(not_all_na))
 #filtered_r_value_matrix_exp1 <- filtered_r_value_matrix_exp1[,-c(6, 9, 11, 13:15, 17, 20, 22, 25:26, 30)]
 filtered_r_matrix_exp2 <- na.omit(filtered_r_value_matrix_exp2)
@@ -615,7 +626,8 @@ selected_rows_nai2 <- apply(deg_sig_list2_nai, 1, any)
 
 # Filter both matrices based on selected rows, removing NAs
 filtered_r_value_matrix_nai2 <- spearman_deg2_nai$r[selected_rows_nai2, ]
-filtered_r_value_matrix_nai12<- as.data.frame(filtered_r_value_matrix_nai2)
+
+filtered_r_value_matrix_nai2<- as.data.frame(filtered_r_value_matrix_nai2)
 
 filtered_r_value_matrix_nai2 <- as.data.frame(filtered_r_value_matrix_nai2) %>% select(where(not_all_na))
 filtered_r_matrix_nai2 <- na.omit(filtered_r_value_matrix_nai2)
@@ -633,10 +645,11 @@ corrplot(r_matrix_filtered_nai2)
 
 #dose 3 +/-
 # Identify rows where any of the columns have significant correlations: D3+
-selected_rows_exp3 <- apply(deg_sig_list3_pos, 1, any)
+
+selected_rows_exp3 <- apply(deg_sig_list3_exp, 1, any)
 
 # Filter both matrices based on selected rows, removing NAs
-filtered_r_value_matrix_exp3 <- spearman_deg3_pos$r[selected_rows_exp3, ]
+filtered_r_value_matrix_exp3 <- spearman_deg3_exp$r[selected_rows_exp3, ]
 
 filtered_r_value_matrix_exp3 <- as.data.frame(filtered_r_value_matrix_exp3) %>% select(where(not_all_na))
 filtered_r_matrix_exp3 <- na.omit(filtered_r_value_matrix_exp3)
@@ -676,7 +689,8 @@ corrplot(r_matrix_filtered_nai3)
 ## Showing significant correlations on heatmap.
 ```{r}
 
-corrplot(cds, p.mat = spearman_deg3_exp$p.adj, sig.level = 0.05 )
+
+#corrplot(cds, p.mat = spearman_deg3_exp$p.adj, sig.level = 0.05 )
 
 ```
 
