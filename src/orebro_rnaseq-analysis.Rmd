@@ -1165,6 +1165,7 @@ g2
 ggsave(g2,filename = paste0("../", result.dir,"linear_relationship_fold_change_supp.pdf"),
       height = 7, width = 7)
 ```
+
 ```{r}
 degs <- lapply(gene_names_filt, function(x) x %>% filter(padj < 0.05, log2FoldChange > 1) %>% pull(gene_symbol))
 #degs[["Naïve Dose 1 0-24 hours"]] <- "no_degs"
@@ -1265,11 +1266,63 @@ ggsave(g2,filename = paste0("../", result.dir,"cytokine_degs.pdf"),
       height = 7, width = 7)
 ```
 
+### Generating examples of cytokine DEGs
+
+```{r degs_show}
+#interesting genes related to complement
+plot_counts <- function(gene_interest, dds = dds1){
+ fiss <- plotCounts(dds,  gene_interest, 
+                   intgroup = c("dose","group"), returnData = TRUE, transform = FALSE, normalized = TRUE, replaced = FALSE)
+
+g <- ggplot(fiss,
+  aes(x = dose, y = count, color = group, group = group)) + 
+  geom_point() + stat_summary(fun.y=mean, geom="line") +
+  scale_y_log10()  +
+  labs(x = "", y = "Normalized counts\n(median of ratios)") +
+  scale_color_manual(values = c("#A9A9A9", "#A9CAF6")) +
+  theme_prism(base_line_size = .5, base_fontface = "plain", axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5), legend.position = "right",
+        aspect.ratio = 1,
+        legend.title = element_text())
+g
+}
+plot_counts(gene_interest = "CXCL10")
+ggsave(filename = paste0("../", result.dir,"cxcl10_cytokine_degs.pdf"),
+      height = 5, width = 5)
+
+plot_counts(gene_interest = "IL16")
+ggsave(filename = paste0("../", result.dir,"IL16_degs.pdf"),
+      height = 5, width = 5)
+
+plot_counts(gene_interest = "CD40LG")
+ggsave(filename = paste0("../", result.dir,"CD40LG_degs.pdf"),
+      height = 5, width = 5)
+
+plot_counts(gene_interest = "CCL5")
+ggsave(filename = paste0("../", result.dir,"CCL5_degs.pdf"),
+      height = 5, width = 5)
+
+plot_counts(gene_interest = "TNF")
+ggsave(filename = paste0("../", result.dir,"TNF_degs.pdf"),
+      height = 5, width = 5)
+
+plot_counts(gene_interest = "TNFSF13B")
+ggsave(filename = paste0("../", result.dir,"TNFSF13B_degs.pdf"),
+      height = 5, width = 5)
+
+plot_counts(gene_interest = "IL1B")
+ggsave(filename = paste0("../", result.dir,"IL1B_degs.pdf"),
+      height = 5, width = 5)
+
+plot_counts(gene_interest = "IL15")
+ggsave(filename = paste0("../", result.dir,"IL15_degs.pdf"),
+      height = 5, width = 5)
+```
+
 ## Transcription factors heatmap
 overrepresentation analysis of transcriptional factors
 
 ```{r}
-
 msig_geneset <- msigdbr(species = "Homo sapiens", category = "C3")
 msig_geneset <- msig_geneset %>% filter(gs_subcat %in% c("TFT:GTRD", "TFT:TFT_Legacy"))
 tft_geneset <- msig_geneset %>%
