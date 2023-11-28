@@ -57,6 +57,7 @@ options(stringsAsFactors = FALSE)
 
 ```{r, results='hide'}
 library(tidyr)
+library(ggpubr)
 library(ggsci)
 library(ComplexHeatmap)
 library(GeneOverlap)
@@ -1226,8 +1227,8 @@ heatmap1
 4 gene sets were used based on the groups of  Chemokine (45), Interferon (33), Interleukins (43), and TNF (18) ligands according to the HUGO gene nomenclature Committee.
 
 ```{r}
-ls_gene_file <- list.files("../data/gene_sets", pattern = "231102", full.names = TRUE)
-ls_gene_sets <- lapply(ls_gene_file, read.csv, header = TRUE)
+ls_gene_file <- list.files("../data/gene_sets", pattern = "231102|231128", full.names = TRUE)
+ls_gene_sets <- lapply(ls_gene_file, read.csv, header = TRUE, sep = ",")
 names(ls_gene_sets) <- sub("^(?:[^_]+_){2}([^_]+)_.*$", "\\1", ls_gene_file)
 gene_sets <- rbindlist(ls_gene_sets, idcol = "gene_set", use.names = TRUE)
 
@@ -1257,7 +1258,7 @@ g2 <- cytokine_heatmap %>%
   labs(x = "", y = "", size = "FoldChange\n(Absolute log2)", color = "Significance") +
   theme_bw() +
   facet_wrap(~regulation, scales = "free_y") +
-  theme_prism(base_line_size = .5, base_fontface = "plain", axis_text_angle = 45) +
+  theme_prism(base_line_size = .5, base_fontface = "plain", axis_text_angle = 45, base_size = 12) +
   theme(axis.ticks = element_line(size = .5), legend.position = "right",
         aspect.ratio = 1,
         legend.title = element_text())
