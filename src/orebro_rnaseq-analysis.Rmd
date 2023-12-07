@@ -102,7 +102,10 @@ counts_raw <- data.table::fread("../data/processed_data_nfcore/batch_1-2/salmon/
 
 
 colnames(counts_raw) <- sub("_L001|_L002", "",colnames(counts_raw))
-# Aggregate and sum up genes with same gene symbol (basically different isoforms)
+# Filter for only protein coding genes or mitochondrial/ribosomic genes
+gene_id_metadata <- read.csv("../data/metadata/2023-11-222_mart_export_gene_ids_hsa.txt") %>% filter(Gene.type %in% c("Mt_rRNA", "protein_coding", "rRNA"))
+# Aggregate and sum up genes with same gene symbol (sum up isoform of genes)
+counts_raw <- counts_raw[counts_raw$gene_name %in% gene_id_metadata$Gene.name,]
 
 counts_raw <- aggregate(counts_raw[, -1], 
                         list(gene_name = counts_raw[, 1]), 
@@ -1393,7 +1396,7 @@ ggsave(g3, filename = paste0("../", result.dir,"transcription_factors_ORA.pdf"),
 degs_entrez_id <- lapply(degs, function(x) plyr::mapvalues(x, from = annot$SYMBOL, to = annot$ENTREZID, warn_missing = FALSE))
 
 ora_tf_compare <- compareCluster(degs, fun = "enrichPathway")
-compared_cluster <- compareCluster(degs_entrez_id, fun='enrichKEGG', organism='hsa')
+compared_cluster <- compareCluster(ora_tf_compare, fun='enrichKEGG', organism='hsa')
 cluster_termsim <- pairwise_termsim(compared_cluster, method = "JC")             
 p4 <- emapplot(xx, pie="count", cex_category=1.5, layout="kk")
 p4 + scale_fill_npg() 
