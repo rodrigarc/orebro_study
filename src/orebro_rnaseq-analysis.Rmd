@@ -624,10 +624,17 @@ names(results_list) <- c("Baseline Dose 1 Conv vs Naïve",
                                      TRUE ~ "Not significant"),
                     )
   })
-    
+
 # function to plot volcano plots
-volcano_plot <-  function(x){
-  subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 1 & padj < 0.05)
+volcano_plot <-  function(x, pvalue_selection = c("padj","pvalue")){
+  if(pvalue_selection == "padj"){
+    col_name_pval <- "test_padj"
+  } else if(pvalue_selection == "pvalue"){
+    col_name_pval <- "test_pvalue"
+  } else {
+    stop("Please change the pvalue_selection argument value. It should either `padj` or `pvalue`.")
+  }
+  subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 1 & get(pvalue_selection) < 0.05)
   label_list <- c("RSAD2", "IFIT1", "CXCL10", "CMPK2", "GBP1P1", "IFI44L", "BATF2", "SIGLEC1", "IFI44", "NDUFS4", "MX1", "CXCL9", "FCGR1A", "FCGR1B", "CCL4")
   label<- subsetted %>% filter(gene_symbol %in% label_list)
 
@@ -635,29 +642,29 @@ volcano_plot <-  function(x){
   deg_number_up <- subset(
     results_list_plot[[x]] %>%
       tibble::rownames_to_column("gene_symbol"),
-    log2FoldChange >= 1 & padj < 0.05
+    log2FoldChange >= 1 & get(pvalue_selection) < 0.05
   ) %>%
     nrow()
   # count down regulated DEGs
   deg_number_down <- subset(
     results_list_plot[[x]] %>%
       tibble::rownames_to_column("gene_symbol"),
-    log2FoldChange <= -1 & padj < 0.05
+    log2FoldChange <= -1 & get(pvalue_selection) < 0.05
   ) %>%
     nrow()
 
   
   results_list_plot[[x]] %>% 
-  ggplot(aes(x = log2FoldChange, y = -log10(padj))) +
-  geom_point(aes(colour = test_padj), size = 3, alpha = 0.3) +
+  ggplot(aes(x = log2FoldChange, y = -log10(get(pvalue_selection)))) +
+  geom_point(aes(color = get(col_name_pval)), size = 3, alpha = 0.3) +
   scale_color_manual(values = c("Down regulated"="blue", "Not significant" ="grey80", "Up regulated"="red")) +
   xlab(expression("Fold Change (Log"[2]*")")) +
-  ylab(expression("-Log"[10]*"(p-value)")) +
+  ylab(expression(paste0("-Log"[10]*"(", pvalue_selection,")"))) +
   labs(x = NULL, y = NULL) +
   geom_vline(xintercept = c(-1), linetype = "dotted", size = 1) + 
   geom_vline(xintercept = c(1), linetype = "dotted", size = 1) + 
   geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
- geom_label_repel(data = label, aes(log2FoldChange,-log10(pvalue),label= gene_symbol)) +
+ geom_label_repel(data = label, aes(log2FoldChange,-log10(get(pvalue_selection)),label= gene_symbol)) +
  xlim(-2,6) +
  ylim(0,20) +
   ggtitle(x) +  
@@ -668,7 +675,7 @@ volcano_plot <-  function(x){
   }
 
 
-volcano_plots <- lapply(names(results_list_plot), volcano_plot)
+volcano_plots <- lapply(names(results_list_plot), volcano_plot, pvalue_selection = "padj")
 names(volcano_plots) <- names(results_list_plot)
 volcano_plots
 ```
@@ -683,6 +690,21 @@ lapply(names(volcano_plots), function(x) {
     plot = volcano_plots[[x]]
   )
 })
+
+
+# save degs in a csv file
+
+name <- function(x){
+  tibble::rownames_to_column(x, "gene")
+}
+
+results_list_named <- lapply(results_list, name)
+
+rbindlist(results_list_named, idcol = "comparison") %>%
+  mutate(FC_greater_1 = ifelse(log2FoldChange > 1, 1, 0)) %>%
+  relocate(comparison, FC_greater_1) %>%
+  filter(padj < 0.05) %>%
+  write.csv(.,paste0("../", result.dir, "DEGs_all_comparisons.csv"), row.names = TRUE)
 
 ```
 ### Enrichment analysis
@@ -947,14 +969,14 @@ colnames(to_heatmap) <- to_heatmap[1, ]
 to_heatmap <- to_heatmap[-1, ]
 
 col_order <- c(
-  "Naïve Dose 1 0-24 hours",
   "Conv Dose 1 0-24 hours",
-  "Naïve Dose 2 0-24 hours",
+  "Naïve Dose 1 0-24 hours",
   "Conv Dose 2 0-24 hours",
-  "Naïve Dose 3 0-24 hours",
+  "Naïve Dose 2 0-24 hours",
   "Conv Dose 3 0-24 hours",
-  "Naïve Dose 3 0-48 hours",
-  "Conv Dose 3 0-48 hours"
+  "Naïve Dose 3 0-24 hours",
+  "Conv Dose 3 0-48 hours",
+  "Naïve Dose 3 0-48 hours"
 )
 
 to_heatmap <- to_heatmap[, col_order]
@@ -1022,14 +1044,14 @@ colnames(to_heatmap) <- to_heatmap[1, ]
 to_heatmap <- to_heatmap[-1, ]
 
 col_order <- c(
-  "Naïve Dose 1 0-24 hours",
   "Conv Dose 1 0-24 hours",
-  "Naïve Dose 2 0-24 hours",
+  "Naïve Dose 1 0-24 hours",
   "Conv Dose 2 0-24 hours",
-  "Naïve Dose 3 0-24 hours",
+  "Naïve Dose 2 0-24 hours",
   "Conv Dose 3 0-24 hours",
-  "Naïve Dose 3 0-48 hours",
-  "Conv Dose 3 0-48 hours"
+  "Naïve Dose 3 0-24 hours",
+  "Conv Dose 3 0-48 hours",
+  "Naïve Dose 3 0-48 hours"
 )
 
 to_heatmap <- to_heatmap[, col_order]
@@ -1172,7 +1194,6 @@ ggsave(g2,filename = paste0("../", result.dir,"linear_relationship_fold_change_s
 
 ```{r}
 degs <- lapply(gene_names_filt, function(x) x %>% filter(padj < 0.05, log2FoldChange > 1) %>% pull(gene_symbol))
-#degs[["Naïve Dose 1 0-24 hours"]] <- "no_degs"
 degs <- degs[-c(1,4,8)]
 
 gom_obj <- newGOM(degs, degs)
@@ -1207,11 +1228,23 @@ row_anno <- rowAnnotation(
   )
 )
 
-heatmap1 <- Heatmap(filtered_degs_matrix_ordered,  border = F, 
-                    rect_gp = gpar(type = "none"), column_dend_side = "bottom",
+col_anno <- columnAnnotation(
+  timepoint = gsub(".*? (.*)$", "\\1", rownames(filtered_degs_matrix_ordered)),
+  group = gsub("^(.*?) .*", "\\1", rownames(filtered_degs_matrix_ordered)),
+  col = list(timepoint = row_col_time, group = row_col_group),
+  show_legend = FALSE
+  )
+
+heatmap1 <- Heatmap(filtered_degs_matrix_ordered, border = FALSE, 
+                    rect_gp = gpar(type = "none"),
                     show_row_names = FALSE, show_column_names = FALSE,
                     name = "Jaccard similarity index",
-                    right_annotation = row_anno, col = my_palette,
+                    bottom_annotation = col_anno,
+                    right_annotation = row_anno, 
+                    col = my_palette,
+                    clustering_method_row = "ward.D2",
+                    clustering_method_columns = "ward.D2",
+                    show_column_dend = FALSE,
     cell_fun = function(j, i, x, y, w, h, fill) {
         if(as.numeric(x) <= 1.1 - as.numeric(y)) {
             grid.rect(x, y, w, h, gp = gpar(fill = fill, col = fill))
@@ -1223,6 +1256,8 @@ heatmap1
   draw(heatmap1)
   dev.off()
 }
+
+
 ```
 
 ## Cytokine heatmap
@@ -1289,38 +1324,25 @@ g <- ggplot(fiss,
         aspect.ratio = 1,
         legend.title = element_text())
 g
+
+ggsave(g, filename = paste0("../", result.dir, gene_interest,"_cytokine_degs.pdf"),
+      height = 5, width = 5)
 }
 plot_counts(gene_interest = "CXCL10")
-ggsave(filename = paste0("../", result.dir,"cxcl10_cytokine_degs.pdf"),
-      height = 5, width = 5)
 
 plot_counts(gene_interest = "IL16")
-ggsave(filename = paste0("../", result.dir,"IL16_degs.pdf"),
-      height = 5, width = 5)
 
 plot_counts(gene_interest = "CD40LG")
-ggsave(filename = paste0("../", result.dir,"CD40LG_degs.pdf"),
-      height = 5, width = 5)
 
 plot_counts(gene_interest = "CCL5")
-ggsave(filename = paste0("../", result.dir,"CCL5_degs.pdf"),
-      height = 5, width = 5)
 
 plot_counts(gene_interest = "TNF")
-ggsave(filename = paste0("../", result.dir,"TNF_degs.pdf"),
-      height = 5, width = 5)
 
 plot_counts(gene_interest = "TNFSF13B")
-ggsave(filename = paste0("../", result.dir,"TNFSF13B_degs.pdf"),
-      height = 5, width = 5)
 
 plot_counts(gene_interest = "IL1B")
-ggsave(filename = paste0("../", result.dir,"IL1B_degs.pdf"),
-      height = 5, width = 5)
 
 plot_counts(gene_interest = "IL15")
-ggsave(filename = paste0("../", result.dir,"IL15_degs.pdf"),
-      height = 5, width = 5)
 ```
 
 ## Transcription factors heatmap
@@ -1342,7 +1364,7 @@ degs <- lapply(degs, function(x) plyr::mapvalues(x, annot$GENEID, annot$SYMBOL, 
 ## map names with TFs
 ora_tf <- lapply(degs, function(x) enricher(x, pvalueCutoff = 1,
            pAdjustMethod = "fdr", 
-           qvalueCutoff = .2, 
+           qvalueCutoff = 1, 
            TERM2GENE = tft_geneset))
 
 ora_tf_df <- lapply(ora_tf, data.frame)
@@ -1375,6 +1397,14 @@ ora_tf_df_bind <-  ora_tf_df_bind %>%
     arrange(ID, p.adjust) %>%
     distinct(ID, timepoint_group, .keep_all = TRUE)
   
+# create empty data.frame with Naive Dose 1 for aesthetics
+data_empty <- data.frame(
+     timepoint_group = "Dose 1_Naïve",
+     ID_cut = unique(ora_tf_df_bind$ID_cut),
+     p.adjust = 1)
+
+ora_tf_df_bind <- plyr::rbind.fill(ora_tf_df_bind, data_empty)
+
 g3 <- ora_tf_df_bind %>%  
   ggplot(aes(x = timepoint_group, y = ID_cut, fill = -log10(p.adjust))) +
   geom_tile() +
@@ -1393,16 +1423,88 @@ ggsave(g3, filename = paste0("../", result.dir,"transcription_factors_ORA.pdf"),
 ## ORA tf cluster comparisons
 
 ```{r}
+degs[["Naïve Dose 1 0-24 hours"]] <- "no_degs"
 degs_entrez_id <- lapply(degs, function(x) plyr::mapvalues(x, from = annot$SYMBOL, to = annot$ENTREZID, warn_missing = FALSE))
 
-ora_tf_compare <- compareCluster(degs, fun = "enrichPathway")
-compared_cluster <- compareCluster(ora_tf_compare, fun='enrichKEGG', organism='hsa')
+compared_cluster <- compareCluster(degs_entrez_id, fun='enrichKEGG', organism='hsa')
 cluster_termsim <- pairwise_termsim(compared_cluster, method = "JC")             
-p4 <- emapplot(xx, pie="count", cex_category=1.5, layout="kk")
+p4 <- emapplot(cluster_termsim, cex_category=1.5, layout="nicely", showCategory = 31)
 p4 + scale_fill_npg() 
-cnetplot(xx, )
-ggsave(filename = paste0("../", result.dir,"example_tf_degs.pdf"),
+
+ggsave(filename = paste0("../", result.dir,"ora_kegg_pathway_network.pdf"),
       height = 10, width = 10)
+
+compared_cluster_cnet <- setReadable(compared_cluster, OrgDb=org.Hs.eg.db, "ENTREZID")
+cnetplot(compared_cluster_cnet, showCategory = c("NOD-like receptor signaling pathway",
+                                                 "Cytosolic DNA-sensing pathway", 
+                                                 "Complement and coagulation cascades",
+                                                 "Necroptosis", 
+                                                 "TNF signaling pathway",
+                                                 "Neutrophil extracellular trap formation",
+                                                 "Fc gamma R-mediated phagocytosis",
+                                                 "Toll-like receptor signaling pathway",
+                                                 "RIG-I-like receptor signaling pathway",
+                                                 "Proteasome",
+                                                 "Phagosome",
+                                                 "Antigen processing and presentation",
+                                                 "JAK-STAT signaling pathway",
+                                                 "Coronavirus disease - COVID-19",
+                                                 "SNARE interactions in vesicular transport" )) +
+  scale_fill_npg() 
+
+ggsave(filename = paste0("../", result.dir,"ora_kegg_pathway_gene_network_selected.pdf"),
+      height = 10, width = 10)
+
+# create empty data.frame with Naive Dose 1 for aesthetics
+data_empty <- data.frame( 
+     Cluster = "Naïve Dose 1 0-24 hours",
+     ID = cluster_termsim@compareClusterResult$ID,
+     Description = cluster_termsim@compareClusterResult$Description,
+     log10_padj = 0,
+     pvalue = 1, 
+     p.adjust = 1,
+     qvalue = 1,
+     geneID = 0,
+     Count = 1, GeneRatio = 0, BgRatio = 0) %>% distinct()
+cluster_termsim@compareClusterResult <- cluster_termsim@compareClusterResult %>%
+  mutate(log10_padj = -log10(p.adjust))
+
+cluster_termsim@compareClusterResult <- plyr::rbind.fill(cluster_termsim@compareClusterResult, data_empty)
+
+# Set factor levels
+cluster_termsim@compareClusterResult$Cluster <- factor(cluster_termsim@compareClusterResult$Cluster, levels = c("Conv Dose 1 0-24 hours", "Naïve Dose 1 0-24 hours",
+                                                       "Conv Dose 2 0-24 hours", "Naïve Dose 2 0-24 hours", 
+                                                       "Conv Dose 3 0-24 hours", "Naïve Dose 3 0-24 hours"))
+
+
+treeplot(cluster_termsim, showCategory = 31,
+         label_format = 30, 
+         offset.params = list(tiplab = 9,
+                              bar_tree = 23), 
+         cluster.params = list(n = 6,
+                               label_words_n = 0),
+         clusterPanel.params = list(
+    colnames_angle = -90),
+         color = "log10_padj") +
+  labs(x = "", fill = "Adjusted p-value\n(-log10)") +
+  scale_fill_gradient2(low = "#265891", mid = "white", high = "#B80F20") +
+  theme(axis.ticks = element_line(size = .5), legend.position = "right",
+        aspect.ratio = 1,
+        legend.title = element_text())
+
+ggsave(filename = paste0("../", result.dir,"ora_kegg_pathway_tree.pdf"),
+      height = 10, width = 30)
+
+dotplot(cluster_termsim, showCategory = 31, color = "log10_padj") +
+  theme_prism(base_line_size = .5, base_fontface = "plain", axis_text_angle = 45) +
+  labs(x = "", color = "Adjusted p-value\n(-log10)") +
+  scale_color_gradient2(low = "#265891", mid = "white", high = "#B80F20") +
+  theme(axis.ticks = element_line(size = .5), legend.position = "right",
+        aspect.ratio = 1,
+        legend.title = element_text())
+
+ggsave(filename = paste0("../", result.dir,"ora_kegg_pathway_dotplot.pdf"),
+      height = 15, width = 15)
 ```
 
 ## Vaccine detection in RNA-seq
