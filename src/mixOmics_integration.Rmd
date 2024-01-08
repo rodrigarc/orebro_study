@@ -20,28 +20,38 @@ knitr::opts_knit$set(echo = TRUE,
                      message = FALSE)
 
 result.dir <- paste0("results/",Sys.Date(),"/")
+diablo_figures.dir <- paste0("results/", Sys.Date(), "/", "diablo_figures/")
 
 ## creates result.dir with date in if not existent
 ifelse(isFALSE(dir.exists(paste0("../",result.dir))), dir.create(paste0("../",result.dir),recursive = TRUE),"Result directory for today exists already!")
+
+ifelse(isFALSE(dir.exists(paste0("../", diablo_figures.dir))),
+  dir.create(paste0("../", diablo_figures.dir), recursive = TRUE),
+  "Result directory for today exists already!"
+)
+
 options(stringsAsFactors = FALSE) 
+
+
 ```
 
 ## Needed libraries
 ```{r libraries, message=FALSE}
+
 library(mixOmics)
 library(data.table)
 library(kableExtra)
 library(forcats)
 library(tibble)
 library(devtools)
-library(dplyr)
 library(tidyr)
+library(dplyr)
 library(plyr)
 library(SummarizedExperiment)
 library(grDevices)
 library(ggplot2)
-
-
+library(ggpubr)
+library(ggprism)
 ```
 
 ## Load data
@@ -50,10 +60,16 @@ library(ggplot2)
 # Read the transcript data
 transcript_data <- data.table::fread("../data/machine_learning_dataset/fold_changes_correlation.csv") 
 
+transcript_data_tpm <- data.table::fread("../data/machine_learning_dataset/TPM_fold_changes_correlation_protein_coding.csv") 
+
 # Read the cytokine data
 cytokine_data <- data.table::fread("../data/cytokine_luminex/220406_luminex_edited_data_FC.csv")
 
 set.seed(5249) # for reproducibility, remove for normal use
+
+#For using TPM, removes Prior covid_19 column
+transcript_data <- transcript_data_tpm[,1:39599]
+
 ```
 
 
@@ -124,6 +140,7 @@ sampleTable <- sampleTable %>% filter(batch != "third")
 transcript_data <- arrange(transcript_data, sample_ID)
 cytokine_data <- arrange(cytokine_data, subject_ID)
 
+transcript_data_tpm <- arrange(transcript_data_tpm, sample_ID)
 ```
 
 ## Data Pre-processing
@@ -139,8 +156,11 @@ not_all_na <- function(x) any(!is.na(x))
 
 #Removing irrelevant columns
 trans_ds <- select(transcript_data, c(1, 3, 6:length(transcript_data))) #selects the sample_ID, group, and gene data 
+trans_ds_tpm <- select(transcript_data_tpm, c(1, 3, 6:length(transcript_data_tpm))) #selects the sample_ID, group, and gene data 
+trans_ds_tpm_na <- na.omit(trans_ds_tpm)
 
 cyto_ds <- select(cytokine_data, c(1, 3:35)) # Selects sample_ID, group, and cytokine data
+
 
 #Resetting group values & names
 cyto_ds[cyto_ds == "Experienced"] <- "pos"
@@ -162,14 +182,16 @@ trans_groups_nai <- trans_groups %>% filter(group == "neg")
 
 #Doses 1-3
 tds <- column_to_rownames(trans_ds, var = "sample_ID")
+#Filtering into separate objects based on dose
 transcript_d1 <- select(tds, contains('_dose1'))
 transcript_d2 <- select(tds, contains('_dose2'))
 transcript_d3 <- select(tds, contains('_dose3'))
 
-transcript_stack <- transcript_d1[-c(4,7:8),]
-transcript_stack$dose <- paste(dose = '1')
-transcript_stack <- rownames_to_column(transcript_stack, var = 'sample')
-transcript_stack$sample <-  paste(transcript_stack$sample, transcript_stack$dose, sep = ".")
+#Removing sample 222-15,  222-2, and 222-21 for symmetrical matrices for analyses
+transcript_stack1 <- transcript_d1[-c(4,7:8),]
+transcript_stack1$dose <- paste(dose = '1')
+transcript_stack1 <- rownames_to_column(transcript_stack1, var = 'sample')
+transcript_stack1$sample <-  paste(transcript_stack1$sample, transcript_stack1$dose, sep = ".")
 
 transcript_stack2 <- transcript_d2[-c(4,7:8),]
 transcript_stack2$dose <- paste(dose = '2')
@@ -187,11 +209,11 @@ string_to_remove2 <- "_dose2"
 string_to_remove3 <- "_dose3"
 
 # Remove the string from column names
-colnames(transcript_stack) <- sub(string_to_remove, "", colnames(transcript_stack))
+colnames(transcript_stack1) <- sub(string_to_remove, "", colnames(transcript_stack1))
 colnames(transcript_stack2) <- sub(string_to_remove2, "", colnames(transcript_stack2))
 colnames(transcript_stack3) <- sub(string_to_remove3, "", colnames(transcript_stack3))
 
-transcript_stack_all <- transcript_stack %>% bind_rows(transcript_stack2, transcript_stack3)
+transcript_stack_all <- transcript_stack1 %>% bind_rows(transcript_stack2, transcript_stack3)
 
 
 #Dose 1 
@@ -263,9 +285,12 @@ cyto_d3 <- not_all_ones(cyto_d3)
 td <- tds[-c(4,7:8),2:length(tds)]
 trans_groups_alldoses <- trans_groups[-c(4,7:8),] 
 
-
+#Filters by dose
 time <- c("V11","V5", "V2")
 cyto <- cyto_ds %>% dplyr::filter(Timepoint %in% time)
+
+# Removed NAs and columns where all values are 1 manually for PCA analysis with all doses, as well as dose-wide comparisons due
+# to reduced cytokine panel after dose 3
 cyto <- cyto[,-c(5,7,9:15,17,19,25,30,31,33,34)]
 cyto_groups_time <- cyto[-c(12,21),c(1:3)]
 cyto$sample <- paste(cyto$sample, cyto$Timepoint, sep = ".")
@@ -287,444 +312,147 @@ cyto_groups <- cyto[-c(12,21),c(1,3)]
 
 #All doses by group
 
+#removing zero variance genes: -[,13809] H2AC19_dose3
+td <- td[,-13809]
+
 pca.gene <- pca(td, ncomp = 10, center = TRUE, scale = TRUE)
 pca.cyto <- pca(cyto_data, ncomp = 10, center =T, scale = T)
 pca.gene_all <- pca(transcript_stack_all, ncomp = 10, center = TRUE, scale = TRUE)
 
 plot(pca.gene)
-plot(pca.cyto)
+plot(pca.cyto, )
 plot(pca.gene_all)
 
-All_transcripts_group <- plotIndiv(pca.gene, comp = c(1, 2), 
+plotIndiv(pca.gene, comp = c(1, 2), 
               group = trans_groups_alldoses$group, 
               ind.names = trans_groups_alldoses$sample, 
               legend = TRUE, title = 'All Doses mRNA transcripts by group, PCA comp 1 - 2')
 
+## This one needs an object from a later data object. 
+plotIndiv(pca.gene_all, comp = c(1, 2),
+              group = dia_group$group,
+              ind.names = F,
+              legend = TRUE, title = 'All Doses mRNA transcripts by group, PCA comp 1 - 2')
 
 
-All_transcripts_dose <- plotIndiv(pca.gene_all, comp = c(1, 2), 
-          group = transcript_stack_all$dose, 
-          ind.names = transcript_stack_all$sample, 
+plotIndiv(pca.gene_all, comp = c(1, 2),
+          group = transcript_stack_all$dose,
+          ind.names = transcript_stack_all$sample,
           legend = TRUE, title = 'All Doses mRNA transcripts by dose, PCA comp 1 - 2')
 
 
 
-cytokines_group <- plotIndiv(pca.cyto, comp = c(1, 2), 
+plotIndiv(pca.cyto, comp = c(1, 2), 
           group = cyto_groups_time$group, 
           ind.names = cyto_groups_time$sample, 
           legend = TRUE, title = 'Cytokines All doses by group, PCA comp 1 - 2')
 
-cytokines_dose <- plotIndiv(pca.cyto, comp = c(1, 2), 
-          group = cyto_groups_time$Timepoint, 
-          ind.names = cyto_groups_time$sample, 
-          legend = TRUE, title = 'Cytokine All doses by dose, PCA comp 1 - 2')
-
 
 {
-  pdf(paste0("../",result.dir,"mRNA_by_group.pdf"),  width = 25, height = 25)
-  print(All_transcripts_group)
+  pdf(paste0("../",diablo_figures.dir,"PCA_mRNA_by_group.pdf"),  width = 10, height = 10)
+  plotIndiv(pca.gene, comp = c(1, 2), 
+              group = trans_groups_alldoses$group, 
+              ind.names = trans_groups_alldoses$sample, 
+              legend = TRUE, title = 'All Doses mRNA transcripts by group, PCA comp 1 - 2')
   dev.off()
 }
 
 {
-  pdf(paste0("../",result.dir,"mRNA_by_dose.pdf"),  width = 25, height = 25)
-  print(All_transcripts_dose)
+  pdf(paste0("../",diablo_figures.dir,"PCA_mRNA_by_group_all_doses.pdf"),  width = 10, height = 10)
+  plotIndiv(pca.gene_all, comp = c(1, 2),
+              group = dia_group$group,
+              ind.names = F,
+              legend = TRUE, title = 'All Doses mRNA transcripts by group, PCA comp 1 - 2') 
+
   dev.off()
 }
 
-{
-  pdf(paste0("../",result.dir,"cytokines_by_group.pdf"),  width = 25, height = 25)
-  print(cytokines_group)
-  dev.off()
-}
-
-{
-  pdf(paste0("../",result.dir,"cytokines_by_dose.pdf"),  width = 25, height = 25)
-  print(cytokines_dose)
-  dev.off()
-}
-
-
-#Dose 1
-pca.gene1 <- pca(transcript_d1, ncomp = 10, center = TRUE, scale = TRUE)
-pca.cyto1 <- pca(cyto_d1, ncomp = 10, center = TRUE, scale = TRUE)
-
-
-plot(pca.gene1)
-plot(pca.cyto1)
-
-
-mrna_dose1 <- plotIndiv(pca.gene1, comp = c(1, 2), 
-          group = transcript_d1g$group, 
-          ind.names = transcript_d1g$sample, 
-          legend = TRUE, title = 'Dose 1 mRNA transcripts, PCA comp 1 - 2')
-
-cytokine_dose1 <- plotIndiv(pca.cyto1, comp = c(1, 2), 
-          group = transcript_d1g$group, 
-          ind.names = transcript_d1g$sample, 
-          legend = TRUE, title = 'Dose 1 cytokine, PCA comp 1 - 2')
 
 
 {
-  pdf(paste0("../",result.dir,"mrna_dose1.pdf"),  width = 25, height = 25)
-  print(mrna_dose1)
-  dev.off()
-}
-{
-  pdf(paste0("../",result.dir,"cytokines_dose1.pdf"),  width = 25, height = 25)
-  print(cytokine_dose1)
-  dev.off()
-}
-
-
-#dose 2
-pca.gene2 <- pca(transcript_d2, ncomp = 10, center = TRUE, scale = TRUE)
-pca.cyto2 <- pca(cyto_d2, ncomp = 10, center = TRUE, scale = TRUE)
-
-
-plot(pca.gene2)
-plot(pca.cyto2)
-
-
-mrna_dose2 <- plotIndiv(pca.gene2, comp = c(1, 2), 
-          group = transcript_d2g$group, 
-          ind.names = transcript_d2g$sample, 
-          legend = TRUE, title = 'Dose 2 mRNA transcripts, PCA comp 1 - 2')
-
-cytokine_dose2 <- plotIndiv(pca.cyto2, comp = c(1, 2), 
-          group = transcript_d2g$group, 
-          ind.names = transcript_d2g$sample, 
-          legend = TRUE, title = 'Dose 2 cytokine, PCA comp 1 - 2')
-
-{
-  pdf(paste0("../",result.dir,"mrna_dose2.pdf"),  width = 25, height = 25)
-  print(mrna_dose2)
-  dev.off()
-}
-{
-  pdf(paste0("../",result.dir,"cytokines_dose2.pdf"),  width = 25, height = 25)
-  print(cytokine_dose2)
+  pdf(paste0("../",diablo_figures.dir,"PCA_cytokines_by_group.pdf"),  width = 10, height = 10)
+  plotIndiv(pca.cyto, comp = c(1, 2), 
+          group = cyto_groups_time$group, 
+          ind.names = F, 
+          legend = TRUE, title = 'Cytokines All doses by group, PCA comp 1 - 2')
   dev.off()
 }
 
 
-#Dose 3
-pca.gene3 <- pca(transcript_d3, ncomp = 10, center = TRUE, scale = TRUE)
-pca.cyto3 <- pca(cyto_d3, ncomp = 10, center = TRUE, scale = TRUE)
+# Extract the loadings for the first and second principal components
+loadings_pc1_gene <- pca.gene$rotation[, 1]
+#loadings_pc2_gene <- pca.gene$rotation[, 2]
+#top_pca_gene <- pca.gene$
+#print(top_pca_gene)
+
+# Obtain the top ten loadings for PC1 and PC2
+top_ten_pc1_gene <- head(sort(abs(loadings_pc1_gene), decreasing = TRUE), 10)
+#top_ten_pc2_gene <- head(sort(abs(loadings_pc2_gene), decreasing = TRUE), 10)
+
+# Display the top ten loadings for PC1 and PC2
+top_ten_pc1_gene
+#top_ten_pc2_gene
 
 
-plot(pca.gene3)
-plot(pca.cyto3)
+# Extract the loadings for the first and second principal components
+loadings_pc1_cyto <- pca.cyto$rotation[, 1]
+#loadings_pc2_cyto <- pca.cyto$rotation[, 2]
 
+# Obtain the top ten loadings for PC1 and PC2
+top_5_pc1_cyto <- head(sort(abs(loadings_pc1_cyto), decreasing = TRUE), 5)
+#top_ten_pc2_cyto <- head(sort(abs(loadings_pc2_cyto), decreasing = TRUE), 10)
 
-mrna_dose3 <- plotIndiv(pca.gene3, comp = c(1, 2), 
-          group = transcript_d3g$group, 
-          ind.names = transcript_d3g$sample, 
-          legend = TRUE, title = 'Dose 3 mRNA transcripts, PCA comp 1 - 2')
+# Display the top ten loadings for PC1 and PC2
+top_5_pc1_cyto
+#top_ten_pc2_cyto
 
-cytokine_dose3 <- plotIndiv(pca.cyto3, comp = c(1, 2), 
-          group = transcript_d3g$group, 
-          ind.names = transcript_d3g$sample, 
-          legend = TRUE, title = 'Dose 3 cytokine, PCA comp 1 - 2')
+# Extract the loadings for the first and second principal components
+loadings_pc1_gene_all <- pca.gene_all$rotation[, 1]
+#loadings_pc2_gene_all <- pca.gene_all$rotation[, 2]
 
-{
-  pdf(paste0("../",result.dir,"mrna_dose3.pdf"),  width = 25, height = 25)
-  print(mrna_dose3)
-  dev.off()
-}
-{
-  pdf(paste0("../",result.dir,"cytokines_dose3.pdf"),  width = 25, height = 25)
-  print(cytokine_dose3)
-  dev.off()
-}
+# Obtain the top ten loadings for PC1 and PC2
+top_ten_pc1_gene_all <- head(sort(abs(loadings_pc1_gene_all), decreasing = TRUE), 10)
+#top_ten_pc2_gene_all <- head(sort(abs(loadings_pc2_gene_all), decreasing = TRUE), 10)
 
-
+# Display the top ten loadings for PC1 and PC2
+top_ten_pc1_gene_all
+#top_ten_pc2_gene_all
 
 
 ```
 
-## sPLS analysis
-```{r}
 
-spls.d1 <- spls(X = transcript_d1, Y = cyto_d1, ncomp = 5, mode = 'regression')
 
-# #For dealing with NAs in data sets
-# nipals.tune = nipals(cyto_d1, ncomp = 10)$eig
 
-# repeated CV tuning of component count
-perf.spls.d1 <- perf(spls.d1, validation = 'loo',   signif.threshold = 0.05,
-
-                        ) 
-
-plot(perf.spls.d1, criterion = 'Q2.total')
-
-
-# set range of test values for number of variables to use from X dataframe
-list.keepX <- c(seq(20, 50, 5))
-# set range of test values for number of variables to use from Y dataframe
-list.keepY <- c(3:16) 
-
-
-tune.spls.d1 <- tune.spls(transcript_d1, cyto_d1, ncomp = 2,
-                              test.keepX = list.keepX,
-                              test.keepY = ncol(cyto_d1),
-                              validation = "loo",
-                              nrepeat = 1, #folds = 10, # use 10 folds
-                              mode = 'regression', measure = 'cor') 
-
-plot(tune.spls.d1)         # use the correlation measure for tuning
-
-
-tune.spls.d1$choice.keepX
-tune.spls.d1$choice.keepY
-
-# extract optimal number of variables for X dataframe
-optimal.keepXd1 <- tune.spls.d1$choice.keepX 
-
-# extract optimal number of variables for Y datafram
-optimal.keepYd1 <- tune.spls.d1$choice.keepY
-
-optimal.ncompd1 <-  length(optimal.keepXd1) # extract optimal number of components
-
- #use all tuned values from above
-final.spls.d1 <- spls(transcript_d1, cyto_d1, ncomp = optimal.ncompd1, 
-                    keepX = optimal.keepXd1,
-                    keepY = optimal.keepYd1,
-                    mode = "regression") # explanitory approach being used, 
-                                         # hence use regression mode
-
-
-
-color.edge <- color.GreenRed(50)  # set the colours of the connecting lines
-
-# X11() # To open a new window for Rstudio
-network(final.spls.d1, comp = 1:2,
-        cutoff = 0.7, # only show connections with a correlation above 0.7
-        shape.node = c("rectangle", "circle"),
-        graph.scale = 0.15,
-        size.node = .5,
-        color.node = c("cyan", "pink"),
-        color.edge = color.edge,
-        save = 'png', # save as a png to the current working directory
-        name.save = 'MixOmics_Network_dose_1_size_2023_11_20.2')
-
-cim(final.spls.d1, comp = 1:2, xlab = "Cytokines", ylab = "mRNA", save = 'pdf', name.save = 'mixOmics_heatmap_dose_1.2023.11.20' )
-
-
-
-
-
-#Dose 2
-spls.d2 <- spls(X = transcript_d2, Y = cyto_d2, ncomp = 5, mode = 'regression')
-
-# repeated CV tuning of component count
- perf.spls.d2 <- perf(spls.d2, validation = 'loo',   signif.threshold = 0.05
- ) 
-
-#  perf.spls.d2 <- perf(spls.d2, validation = 'Mfold',
-#                           folds = 10, nrepeat = 5,
-#                           signif.threshold = 0.05,
-# ) 
-
-plot(perf.spls.d2, criterion = 'Q2.total')
-
-
-# set range of test values for number of variables to use from X dataframe
-list.keepX <- c(seq(20, 60, 5))
-# set range of test values for number of variables to use from Y dataframe
-list.keepY <- c(3:9) 
-
-tune.spls.d2 <- tune.spls(transcript_d2, cyto_d2, ncomp = 2,
-                              test.keepX = list.keepX,
-                              test.keepY = ncol(cyto_d2),
-                              validation = "loo" ,
-                              nrepeat = 1, #folds = 10, # use 10 folds
-                              mode = 'regression', measure = 'cor') 
-
-plot(tune.spls.d2)         # use the correlation measure for tuning
-
-
-tune.spls.d2$choice.keepX
-tune.spls.d2$choice.keepY
-
-# extract optimal number of variables for X dataframe
-optimal.keepX <- tune.spls.d2$choice.keepX 
-
-# extract optimal number of variables for Y datafram
-optimal.keepY <- tune.spls.d2$choice.keepY
-
-optimal.ncomp <-  length(optimal.keepX) # extract optimal number of components
-
- #use all tuned values from above
-final.spls.d2 <- spls(transcript_d2, cyto_d2, ncomp = optimal.ncomp, 
-                    keepX = optimal.keepX,
-                    keepY = optimal.keepY,
-                    mode = "regression") # explanitory approach being used, 
-                                         # hence use regression mode
-
-
-
-color.edge <- color.GreenRed(50)  # set the colours of the connecting lines
-
-# X11() # To open a new window for Rstudio
-network(final.spls.d2, comp = 1:2,
-        cutoff = 0.7, # only show connections with a correlation above 0.7
-        shape.node = c("rectangle", "circle"),
-        graph.scale = 0.2,
-        size.node = .3,
-        color.node = c("cyan", "pink"),
-        color.edge = color.edge,
-        save = 'png', # save as a png to the current working directory
-        name.save = 'MixOmics_Network_dose_2_size_2023.11.20')
-
-cim(final.spls.d2, comp = 1:2, xlab = "Cytokines", ylab = "mRNA", save = 'pdf', name.save = 'mixOmics_heatmap_dose_2_2023.11.20' )
-
-
-#Dose 3
-spls.d3 <- spls(X = transcript_d3, Y = cyto_d3, ncomp = 5, mode = 'regression')
-
-# repeated CV tuning of component count
-perf.spls.d3 <- perf(spls.d3, validation = "loo",
-                         #folds = 10, nrepeat = 5
-                     ) 
-plot(perf.spls.d3, criterion = 'Q2.total')
-
-
-
-# set range of test values for number of variables to use from X dataframe
-list.keepX <- c(seq(20, 60, 5))
-# set range of test values for number of variables to use from Y dataframe
-list.keepY <- c(3:12) 
-
-tune.spls.d3 <- tune.spls(transcript_d3, cyto_d3, ncomp = 2,
-                              test.keepX = list.keepX,
-                              test.keepY = ncol(cyto_d3),
-                              validation = "loo",
-                              nrepeat = 1, #folds = 10, # use 10 folds
-                              mode = 'regression', measure = 'cor') 
-
-plot(tune.spls.d3)         # use the correlation measure for tuning
-
-
-tune.spls.d3$choice.keepX
-tune.spls.d3$choice.keepY
-
-# extract optimal number of variables for X dataframe
-optimal.keepX <- tune.spls.d3$choice.keepX 
-
-# extract optimal number of variables for Y datafram
-optimal.keepY <- tune.spls.d3$choice.keepY
-
-optimal.ncomp <-  length(optimal.keepX) # extract optimal number of components
-
-#use all tuned values from above
-final.spls.d3 <- spls(transcript_d3, cyto_d3, ncomp = optimal.ncomp, 
-                    keepX = optimal.keepX,
-                    keepY = optimal.keepY,
-                    mode = "regression") # explanitory approach being used, 
-                                         # hence use regression mode
-
-
-color.edge <- color.GreenRed(50)  # set the colours of the connecting lines
-
-# X11() # To open a new window for Rstudio
- network(final.spls.d3, comp = 1,
-        cutoff = 0.7, # only show connections with a correlation above 0.7
-        shape.node = c("rectangle", "circle"),
-        graph.scale = 0.35,
-        size.node = .5,
-        color.node = c("cyan", "pink"),
-        color.edge = color.edge,
-        save = 'pdf', # save as a pdf to the current working directory
-        name.save = 'MixOmics_Network_dose_3_size_2023.11.20')
-
-
-cim(final.spls.d3, comp = 1, xlab = "Cytokines", ylab = "mRNA", save = 'pdf', name.save = 'mixOmics_heatmap_dose_3_2023.11.20' )
-
-
-
-```
-
-## SPLS analysis On Cytokines and Genes
+## Constructing DIABLO objects Cytokines and Genes
 
 ```{r}
+set.seed(5249) # for reproducibility, remove for normal use
+
+
+#Filtering cytokines to remove NAs and columns where all values are 1
 cyto_data_stack <- cyto_data[-c(10:11,18:22),]
 transcript_stack_all_spls <- column_to_rownames(transcript_stack_all, var = "sample")
-transcript_stack_all_spls <- transcript_stack_all_spls[,-13277]
-
-spls.data <- spls(X = transcript_stack_all_spls, Y = cyto_data_stack, ncomp = 5, mode = 'regression')
-
-# #For dealing with NAs in data sets
-# nipals.tune = nipals(cyto_d1, ncomp = 10)$eig
-
-# repeated CV tuning of component count
-perf.spls.data <- perf(spls.data, validation = 'loo',   signif.threshold = 0.05,
-
-                        ) 
-
-plot(perf.spls.data, criterion = 'Q2.total')
-
-
-# set range of test values for number of variables to use from X dataframe
-list.keepX <- c(seq(20, 60, 5))
-# set range of test values for number of variables to use from Y dataframe
-list.keepY <- c(3:16) 
-
-
-tune.spls.data <- tune.spls(transcript_stack_all_spls, cyto_data_stack, ncomp = 2,
-                              test.keepX = list.keepX,
-                              test.keepY = ncol(cyto_data_stack),
-                              validation = "loo",
-                              nrepeat = 1, #folds = 10, # use 10 folds
-                              mode = 'regression', measure = 'cor') 
-
-plot(tune.spls.data)         # use the correlation measure for tuning
-
-
-tune.spls.data$choice.keepX
-tune.spls.data$choice.keepY
-
-# extract optimal number of variables for X dataframe
-optimal.keepXdata <- tune.spls.data$choice.keepX 
-
-# extract optimal number of variables for Y datafram
-optimal.keepYdata <- tune.spls.data$choice.keepY
-
-optimal.ncompdata <-  length(optimal.keepXdata) # extract optimal number of components
-
- #use all tuned values from above
-final.spls.data <- spls(transcript_stack_all_spls, cyto_data_stack, ncomp = optimal.ncompdata, 
-                    keepX = optimal.keepXdata,
-                    keepY = optimal.keepYdata,
-                    mode = "regression") # explanitory approach being used, 
-                                         # hence use regression mode
+#removing dose sorting column
+transcript_stack_all_spls <- transcript_stack_all_spls[,-13198]
+#transcript_stack_all_spls <- transcript_stack_all_spls[,-6169]
 
 
 
-color.edge <- color.GreenRed(50)  # set the colours of the connecting lines
-
-# X11() # To open a new window for Rstudio
-network(final.spls.data, comp = 1:2,
-        cutoff = 0.55, # only show connections with a correlation above 0.5
-        shape.node = c("rectangle", "circle"),
-        graph.scale = 0.25,
-        size.node = .5,
-        color.node = c("cyan", "pink"),
-        color.edge = color.edge,
-        save = 'png', # save as a png to the current working directory
-        name.save = 'MixOmics_Network_All_doses_2023_11_20.2')
-
-cim(final.spls.data, comp = 1:2, xlab = "Cytokines", ylab = "mRNA", save = 'pdf', name.save = 'mixOmics_heatmap_all_doses_2023.11.20' )
 
 ```
 
-## mDIABLO MixOmics integration
+## mDIABLO MixOmics integration, data pre-processing 
 ```{r}
 
+set.seed(123) # for reproducibility, remove for normal use
+#Data pre-processing for mDIABLO data visualization 
 all_doses <- rownames_to_column(transcript_stack_all_spls, var = "sample")
 all_doses$sample <- gsub("-", "_", all_doses$sample)
 all_doses <- arrange(all_doses, sample)
 all_doses_mrna <- column_to_rownames(all_doses, var = "sample" )
+#removing dose sort column
+all_doses_mrna <- all_doses_mrna[,-13198]
 
 all_doses_cyto <- rownames_to_column(cyto_data_stack, var = "sample")
 all_doses_cyto$sample <- gsub("-", "_", all_doses_cyto$sample)
@@ -733,15 +461,21 @@ all_doses_cyto$sample <- gsub("V5", "2", all_doses_cyto$sample)
 all_doses_cyto$sample <- gsub("V11", "3", all_doses_cyto$sample)
 all_doses_cyto <- column_to_rownames(all_doses_cyto, var = "sample" )
 
+#selecting significant Cytokines IP-10, MCP-2, I-TAC, MCP-1, LOX-1, IFN-gamma
+all_doses_cyto_sig <- all_doses_cyto[,c(1:2, 4:5, 7,12) ]
+
 # set a list of all the X dataframes
-data = list(mRNA = all_doses_mrna,
-            proteomics = all_doses_cyto)
+data = list(Transcriptomics = all_doses_mrna,
+           Secretomics = all_doses_cyto_sig)
+           
 
 
 
 lapply(data, dim) # check their dimensions
 
-diablo_groups <- transcript_stack_all[,c(1,13278)]
+#Selecting sample_id.dose and dose number 
+diablo_groups <- transcript_stack_all[,c(1,13200)]
+
 d_group1 <- as.data.table(trans_groups_alldoses)
 d_group2 <- as.data.table(trans_groups_alldoses)
 d_group3 <- as.data.table(trans_groups_alldoses)
@@ -764,10 +498,35 @@ dia_group_s <- as.factor(dia_group$group)
 dia_group_factor <- factor(dia_group_s, levels = c("neg", "pos"))
 
 
-#d_group <- bind_cols(d_group_pos[,2], d_group_neg[,2])
-#colnames(d_group) <- c("Naive", "Experienced")
+##FACTORS WITH TIMEPOINTS
+d_group1pn <- d_group1
+d_group2pn <- d_group2
+d_group3pn <- d_group3
+
+d_group1pn$group <-  paste(d_group1pn$group, "_1",  sep = "")
+d_group2pn$group <-  paste( d_group2pn$group,"_2", sep = "")
+d_group3pn$group <-  paste(d_group3pn$group,"_3",  sep = "")
+
+# d_group_pos <- d_group1[c(1,3,9:12),]
+# d_group_neg <- d_group1[c(2,4,5:8),]
+# d_group_pos <- bind_rows(d_group_pos, d_group2[c(1,3,9:12),]) 
+# d_group_neg <- bind_rows(d_group_neg, d_group2[c(2,4,5:8),]) 
+# d_group_pos <- bind_rows(d_group_pos, d_group3[c(1,3,9:12),]) 
+# d_group_neg <- bind_rows(d_group_neg, d_group3[c(2,4,5:8),]) 
+dia_group_time <- d_group1pn
+dia_group_time <- bind_rows(dia_group_time, d_group2pn) 
+dia_group_time <- bind_rows(dia_group_time, d_group3pn) 
+dia_group_time <- arrange(dia_group_time, sample)
+dia_group_time_dose <- as.factor(dia_group_time$group)
+
+dia_group_factor_time <- factor(dia_group_time_dose, levels = c("neg_1", "neg_2", "neg_3", "pos_1", "pos_2", "pos_3"))
 
 
+
+```
+
+## Setting up diablo objects
+```{r}
 
 list.keepX = c(12, 12) # select arbitrary values of features to keep
 list.keepY = c(12, 12)
@@ -778,6 +537,7 @@ cyto_d1x <- cyto_d1[-8,]
 cyto_d2x <- cyto_d2[,-c(11:12,20)]
 
 # generate three pairwise PLS models
+transcript_stack_all_spls <- transcript_stack_all_spls[,-13198]
 pls1 <- spls(transcript_stack_all_spls, cyto_data_stack, 
              keepX = list.keepX, keepY = list.keepY) 
 pls2 <- spls(transcript_d1x, transcript_d2, 
@@ -788,23 +548,62 @@ pls3 <- spls(cyto_d1x, cyto_d2x,
 # plot features of first PLS
 plotVar(pls1, cutoff = 0.5, title = "(a) mRNA vs Cytokines", 
         legend = c("mRNA", "Cytokines"), 
-        var.names = FALSE, style = 'graphics', 
+        var.names = T, style = 'graphics', 
         pch = c(16, 17), cex = c(2,2), 
         col = c('darkorchid', 'lightgreen'))
+
+{
+  pdf(paste0("../",diablo_figures.dir,"MixOmics_PLS1_Variance_mRNAvCytokines_All_doses.pdf"),  width = 50, height = 50)
+  
+# plot features of first PLS
+plotVar(pls1, cutoff = 0.5, title = "(a) mRNA vs Cytokines", 
+        legend = c("mRNA", "Cytokines"), 
+        var.names = T, style = 'graphics', 
+        pch = c(16, 17), cex = c(2,2), 
+        col = c('darkorchid', 'lightgreen'))
+
+  dev.off()
+}
 
 # plot features of second PLS
 plotVar(pls2, cutoff = 0.5, title = "(b) Dose 1 vs 2 Transcript", 
         legend = c("Dose 1", "Dose 2"), 
-        var.names = FALSE, style = 'graphics', 
+        var.names = T, style = 'graphics', 
         pch = c(16, 17), cex = c(2,2), 
         col = c('darkorchid', 'lightgreen'))
+{
+  pdf(paste0("../",diablo_figures.dir,"MixOmics_PLS1_Dose1v2_Transcript_All_doses.pdf"),  width = 20, height = 20)
+  
+# plot features of second PLS
+plotVar(pls2, cutoff = 0.5, title = "(b) Dose 1 vs 2 Transcript", 
+        legend = c("Dose 1", "Dose 2"), 
+        var.names = T, style = 'graphics', 
+        pch = c(16, 17), cex = c(2,2), 
+        col = c('darkorchid', 'lightgreen'))
+
+  dev.off()
+}
 
 # plot features of third PLS
 plotVar(pls3, cutoff = 0.5, title = "(c) Dose 1 v 2 Cytokines", 
         legend = c("Dose 1", "Dose 2"), 
-        var.names = FALSE, style = 'graphics', 
+        var.names = T, style = 'graphics', 
         pch = c(16, 17), cex = c(2,2), 
         col = c('darkorchid', 'lightgreen'))
+
+
+{
+  pdf(paste0("../",diablo_figures.dir,"MixOmics_PLS1_Dose1v2_cytokines_All_doses.pdf"),  width = 20, height = 20)
+  
+# plot features of third PLS
+plotVar(pls3, cutoff = 0.5, title = "(c) Dose 1 v 2 Cytokines", 
+        legend = c("Dose 1", "Dose 2"), 
+        var.names = T, style = 'graphics', 
+        pch = c(16, 17), cex = c(2,2), 
+        col = c('darkorchid', 'lightgreen'))
+
+ dev.off()
+}
 
 # calculate correlation of mRNA and Cytokines
 cor(pls1$variates$X, pls1$variates$Y) 
@@ -813,27 +612,19 @@ cor(pls1$variates$X, pls1$variates$Y)
 cor(pls2$variates$X, pls2$variates$Y) 
 
 # calculate correlation of Dose 1 and 2 Cytokines
-cor(pls3$variates$X, pls3$variates$Y) 
-
-# 
-# 
-# 
-# 
-# #d_group_mod <- mutate_all(d_group, ~gsub("-", "_", .))
-# 
-# group_factors <- mutate_all(d_group, as.factor)
-# 
-# factor_d <- factor(d_group, levels = c("neg", "pos")) 
-# 
-# diablo_factor <- factor(group_factors, levels = c("Naive", "Experienced"))
-# 
+cor(pls3$variates$X, pls3$variates$Y)
 
 
+```
 
+##mDIABLO Set-up and experiment
+
+```{r}
+set.seed(123) # for reproducibility, remove for normal use
 
 X = data
-Y = dia_group_factor
-
+#Y = dia_group_factor # used for omics data not separated by dose
+Y = dia_group_factor_time
 lapply(data, dim) # check their dimensions
 summary(Y)
 # for square matrix filled with 0.1s
@@ -849,15 +640,23 @@ basic.diablo.model = block.splsda(X = data, Y = Y, ncomp = 5, design = design)
 
 # run component number tuning with repeated CV
 perf.diablo = perf(basic.diablo.model, 
-                   validation = 'Mfold', folds = 10, nrepeat = 10,
-                  # validation = 'loo',  
+                  # validation = 'Mfold', folds = 6, nrepeat = 6,
+                   validation = 'loo',  
                   signif.threshold = 0.05,
                    ) 
 
 plot(perf.diablo) # plot output of tuning
 
+{
+ pdf(paste0("../",diablo_figures.dir,"mDIABLO_error.pdf"),  width = 10, height = 10)
+plot(perf.diablo) # plot output of tuning
+dev.off()
+}
+
+
 # set the optimal ncomp value
-ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"] 
+ncomp = perf.diablo$choice.ncomp$WeightedVote["Overall.BER", "mahalanobis.dist"] 
+
 # show the optimal choice for ncomp for each dist metric
 perf.diablo$choice.ncomp$WeightedVote 
 
@@ -866,34 +665,222 @@ test.keepX = list (mRNA = c(5:9, seq(10, 18, 2), seq(20,30,5)),
                    proteomics = c(5:9, seq(10, 18, 2), seq(20,30,5)))
 
 # run the feature selection tuning
-tune.TCGA = tune.block.splsda(X = data, Y = Y, ncomp = ncomp, 
+tune.TCGA = tune.block.splsda(X = data, Y = Y, ncomp = 2, 
                               test.keepX = test.keepX, design = design,
-                              validation = 'Mfold', folds = 10, nrepeat = 1,
-                              #validation = 'loo',
+                              #validation = 'Mfold', folds = 5, nrepeat = 1,
+                              validation = 'loo',
                               signif.threshold = 0.05,
-                              dist = "centroids.dist")
+                              dist = "mahalanobis.dist"
+                              #BPPARAM =
+                              ) #maybe centroid.dist??
 
 list.keepX = tune.TCGA$choice.keepX # set the optimal values of features to retain
 list.keepX
 
 # set the optimised DIABLO model
-final.diablo.model = block.splsda(X = data, Y = Y, ncomp = ncomp, 
+final.diablo.model = block.splsda(X = data, Y = Y, ncomp = 2, 
                           keepX = list.keepX, design = design)
 
 final.diablo.model$design # design matrix for the final model
 
 # the features selected to form the first component
-selectVar(final.diablo.model, block = 'mRNA', comp = 1)$mRNA$name 
+selectVar(final.diablo.model, block = 'Transcriptomics', comp = 1)$Transcriptomics$name
+selectVar(final.diablo.model, block = 'Transcriptomics', comp = 2)$Transcriptomics$name
+selectVar(final.diablo.model, block = 'Secretomics', comp = 1)$Secretomics$name
 
-plotDiablo(final.diablo.model, ncomp = 1)
 
-circosPlot(final.diablo.model, cutoff = 0.7, line = TRUE,
+```
+
+#Diablo plots
+```{r}
+
+{
+ pdf(paste0("../",diablo_figures.dir,"mDIABLO_Model_ellipse_all_doses_sig_cyto.pdf"),  width = 10, height = 10)
+plotDiablo(final.diablo.model, ncomp = 1, )
+
+dev.off()
+}
+
+{
+  pdf(paste0("../",diablo_figures.dir,"Diablo.model.circos_r.65_timepoint_sig_sig_cyto NEW COLORS.pdf"),  width = 10, height = 10)
+  circosPlot(final.diablo.model, cutoff = 0.65, line = T,
            color.blocks= c('darkorchid', 'lightgreen'),
-           color.cor = c("chocolate3","grey20"), size.labels = 1.5)
+           color.cor = c("chocolate3","grey20"), size.labels = 1.7, size.variables = .6 , 
+           color.Y =c( "gray50", "gray30", "black", "royalblue2", "blue2", "navy" )
+           #color.Y =c( "lightgray", "royalblue" )
+           )
+  dev.off()
+}
 
-# network(final.diablo.model, blocks = c(1,2),
-#         color.node = c('darkorchid',  'lightgreen'), cutoff = 0.4)
-# 
+
+circosPlot(final.diablo.model, cutoff = 0.7, line = T,
+           color.blocks= c('darkorchid', 'lightgreen'),
+           color.cor = c("chocolate3","grey20"), size.labels = 1.5,
+         # showIntraLinks = T
+           )
+
+{
+  pdf(paste0("../",diablo_figures.dir,"diablo_circos_all_doses_r.7_sig_cyto.pdf"),  width = 10, height = 10)
+ # pdf("circos_all_doses_23_11_21.pdf")
+  circosPlot(final.diablo.model, cutoff = 0.7, line = T,
+           color.blocks= c('darkorchid', 'lightgreen'),
+           color.cor = c("chocolate3","grey20"), size.labels = 1.5, size.variables = .5
+           )
+  dev.off()
+}
+
+
+{
+  pdf(paste0("../",diablo_figures.dir,"variance_sample_all_doses_sig_cyto.pdf"),  width = 10, height = 10)
+plotIndiv(final.diablo.model, ind.names = F, legend = TRUE,  color.Y =c( "gray50", "gray30", "black", "royalblue2", "blue2", "royalblue4" ) ,
+          title = 'DIABLO Model Component Analysis')
+  dev.off()
+}
+
+plotArrow(final.diablo.model, c(1, 2), ind.names = FALSE, legend = TRUE, 
+          title = 'DIABLO Arrow Plot')
+
+# {
+#   pdf(paste0("../",diablo_figures.dir,"Arrow_Plot_all_doses.pdf"),  width = 50, height = 50)
+#  
+# arrow
+#   dev.off()
+# }
+
+
+{
+  pdf(paste0("../",diablo_figures.dir,"Correlation_circleplot_all_doses_sig_cyto.pdf"),  width = 15, height = 15)
+plotVar(final.diablo.model, var.names = FALSE, 
+        style = 'graphics', legend = TRUE,
+        pch = c(16, 17), cex = c(2,2), 
+        col = c('darkorchid',  'lightgreen'))
+  dev.off()
+} 
+
+
+{
+  pdf(paste0("../",diablo_figures.dir,"Network_all_doses_timepoint_2_sig_sig_cytos.pdf"),  width = 10, height = 10)
+ # pdf("circos_all_doses_23_11_21.pdf")
+network(final.diablo.model, blocks = c(1,2),
+         color.node = c('lightblue',  'forestgreen'), cutoff = 0.4, size.node = .17)
+
+  dev.off()
+}
+
+{
+  pdf(paste0("../",diablo_figures.dir,"Contributions_component_all_doses_sig_cyto.pdf"),  width = 20, height = 20)
+plotLoadings(final.diablo.model, comp = 1, contrib = 'max', method = 'median')
+plotLoadings(final.diablo.model, comp = 2, contrib = 'max', method = 'median')
+
+  dev.off()
+}
+
+
+
+{
+  pdf(paste0("../",diablo_figures.dir,"DiabloMODEL_heatmap_all_doses_sig_cyto_no_patnumbers.pdf"),  width = 15, height = 15)
+
+cimDiablo(final.diablo.model, comp = c(1,2), legend.position = "right", size.legend = 1.2, margins = c(6, 15), row.names = F,
+          color.Y = c("gray50", "gray30", "black", "royalblue2", "blue2", "royalblue4" ) 
+                    )
+
+  dev.off()
+}
+
+{
+  pdf(paste0("../",diablo_figures.dir,"DiabloMODEL_sample_plots_Comp_all_doses_sig_cyto.pdf"),  )
+
+plotIndiv(final.diablo.model, ind.names = F, legend = TRUE, title = 'DIABLO sample plots comp 1 - 2', blocks = 'average', style = 'graphics', ellipse = T )
+
+  dev.off()
+}
+
+{
+  pdf(paste0("../",diablo_figures.dir,"DiabloMODEL_samplevar_plots_all_doses_sig_cyto.pdf"),  )
+
+plotIndiv(final.diablo.model, ind.names = F, legend = TRUE,
+          title = 'DIABLO Variance Plots by Variable')
+  dev.off()
+}
+
+
+# plotIndiv(final.spls.data, group = nutrimouse$genotype,
+#           rep.space = 'XY-variate',
+#           ellipse = TRUE,  # plot using the ellipses
+#           legend = TRUE)
+
+
+{
+  pdf(paste0("../",result.dir,"DiabloMODEL_all_doses_sig_cyto.pdf"),  )
+
+plotIndiv(final.diablo.model)
+
+  dev.off()
+}
+
+
+
+#cimDiablo(final.diablo.model)
+
+
+{
+  pdf(paste0("../",result.dir,"DiabloMODEL_modelblock_all_doses_sig_cyto.pdf"),  )
+
+cimDiablo(final.diablo.model, comp = c(1,2), legend.position = "right", size.legend = 1.1, margins = c(6, 15))
+
+  dev.off()
+}
+
+
+
+```
+
+##  Plots showing expression values Fold change of selected genes across time points and exploration of correlation between genes and cytokines of interest
+```{r}
+
+# Fold Change Expression of GPR84 across all doses in both groups
+trans_groups2 <- trans_groups[,-c(4,7:8)]
+trans_groups2 <- bind_rows(trans_groups_alldoses, trans_groups_alldoses, trans_groups_alldoses)
+
+fc_plots$group <- trans_groups2$group
+fc_plots <- bind_cols(transcript_stack_all, trans_groups2$group)
+
+ggplot(fc_plots,
+  aes(x = dose, y = GPR84, color =  group, group = group)) + 
+  geom_point() + stat_summary(fun.y=mean, geom="line") +
+  #scale_y_log10()  +
+  ggtitle("GPR84") +
+  labs(x = "Dose", y = "Transcripts per million FC") +
+  scale_color_manual(values = c("#A9A9A9", "#A9CAF6")) +
+  #theme_prism(base_line_size = .5, base_fontface = "plain", axis_text_angle = 45) +
+  theme(axis.ticks = element_line(size = .5), legend.position = "right",
+        aspect.ratio = 1,
+        legend.title = element_text())
+
+
+ggsave(filename = paste0("../", result.dir,"GPR84.pdf"),
+      height = 5, width = 5)
+
+
+## Correlation between MCP-1 & IFIT3
+mcp1_data <- cyto_ds[,c(1:3,24)]
+mcp1_data <- mcp1_data %>% dplyr::filter(Timepoint %in% time)
+
+
+ifit3_data <- dplyr::select(trans_ds, contains('IFIT3'))
+
+ifit3_data <- bind_cols(trans_groups,ifit3_data)
+
+ifit3_data_long <- pivot_longer(ifit3_data, cols = !sample:group, values_to = "IFIT3")
+
+df_scatter_ifit3 <- bind_cols(mcp1_data, ifit3_data_long[,4])
+
+ggplot(df_scatter_ifit3, aes(x = IFIT3, y = df_scatter_ifit3$`MCP-1`, colour = group )) +
+  geom_point(aes(shape = group,) ) + 
+  geom_smooth(aes( colour = group), method = "lm", se = F, ) + 
+  stat_cor(aes(group = group), method = "spearman" ) +
+  labs(title = "Fold Change Scatter Plot", x = "IFIT3", y = "MCP-1") +
+  theme_minimal() 
 
 ```
 
