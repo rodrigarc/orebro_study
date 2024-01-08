@@ -1,0 +1,876 @@
+---
+title: "Fold_changes_to_rpkm-tpm"
+author: "Rodrigo Arcoverde Cerveira & Matt Hinchcliff"
+date: '`r format(Sys.Date(), "%Y-%m-%d")`'
+output: html_document
+abstract: Örebro study RNA-seq data analysis.
+knit: (function(inputFile, encoding) {
+          rmarkdown::render(inputFile,
+                            encoding = encoding, 
+                            output_file = paste0(
+                              xfun::sans_ext(inputFile), '_', Sys.Date(), '.html'),
+                                output_dir = "../results/lab_book/")})
+editor_options: 
+  chunk_output_type: inline
+
+
+---
+
+
+```{r global.options, include=FALSE}
+#setting up figures and chunks messages
+
+knitr::opts_knit$set(echo = TRUE,
+                     root.dir = getwd(),
+                     fig.width = 6, fig.height = 5,
+                     fig.align = "center",
+                     out.width = 768,
+                     fig.pos = "H",
+                     warning = FALSE, 
+                     message = FALSE)
+knitr::opts_chunk$set(warning = FALSE,
+                      message = FALSE,
+                      fig.width = 6, fig.height = 5,
+                     fig.align = "center",
+                     out.width = 768,
+                     fig.pos = "H")
+
+result.dir <- paste0("results/",Sys.Date(),"/")
+figures.dir <- paste0("results/",Sys.Date(),"/", "figures/")
+## creates result.dir with date in if not existent
+ifelse(isFALSE(dir.exists(paste0("../",result.dir))), dir.create(paste0("../",result.dir),recursive = TRUE),"Result directory for today exists already!")
+ifelse(isFALSE(dir.exists(paste0("../",figures.dir))), dir.create(paste0("../",figures.dir),recursive = TRUE),"Result directory for today exists already!")
+
+options(stringsAsFactors = FALSE) 
+
+
+```
+
+## loading libraries
+
+
+
+```{r, message=FALSE}
+
+library(dplyr)
+library(RColorBrewer)
+library(EnsDb.Hsapiens.v86)
+library(ggplot2)
+library(clusterProfiler)
+library(DESeq2)
+library(caret)
+library(janitor)
+library(edgeR)
+library(tidyr)
+
+```
+
+## Load and wrangle raw counts
+
+```{r}
+
+# Load raw counts
+counts_raw <- data.table::fread("../data/processed_data_nfcore/batch_1-2/salmon/salmon.merged.gene_counts.tsv",
+                                  header = TRUE, sep = "\t") %>% 
+  as.data.frame()
+
+colnames(counts_raw) <- sub("_L001|_L002", "",colnames(counts_raw))
+
+# Identify duplicated gene_names
+duplicated_genes <- counts_raw$gene_name[duplicated(counts_raw$gene_name)]
+
+# Replace duplicated gene_names with corresponding gene_ids
+counts_raw$gene_name <- ifelse(counts_raw$gene_name %in% duplicated_genes,
+                               counts_raw$gene_id,
+                               counts_raw$gene_name)
+
+
+
+# Change row names to gene names
+rownames(counts_raw) <- counts_raw$gene_name
+counts_raw <- dplyr::select(counts_raw, -c(gene_name, gene_id))
+
+###
+
+# counts_raw <- data.table::fread("../data/processed_data_nfcore/batch_1-2/salmon/salmon.merged.gene_counts.tsv",
+#                                   header = TRUE, sep = "\t") %>% 
+#   as.data.frame() %>%
+#   select(-gene_id)
+# 
+# 
+# colnames(counts_raw) <- sub("_L001|_L002", "",colnames(counts_raw))
+# # Aggregate and sum up genes with same gene symbol (basically non-coding RNAs or ribosomic)
+# counts_raw <- aggregate(counts_raw[, -1], 
+#                         list(gene_name = counts_raw[, 1]), 
+#                         FUN = sum)
+# 
+# # Change row names to gene names
+# rownames(counts_raw) <- counts_raw$gene_name
+# counts_raw <- dplyr::select(counts_raw, -c(gene_name))
+
+# Read antibody data
+antibody_data <- read.csv("../data/antibody_data/2022-04-26_antibody-binding-avidity.csv")
+
+# Load BTM modules
+gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
+
+
+```
+
+## Load metadata and match with raw counts
+
+```{r, results='hide'}
+# Load sample metadata
+sampleTable <- read.table("../data/metadata/sample_metadata_3.csv", 
+                          sep = ",", header = TRUE) %>%
+  dplyr::select(-c(age, sex))
+
+# Load patient metadata
+patient_metadata <- read.table("../data/metadata/patient_metadata.csv", 
+                               sep = ",", header = TRUE)
+
+# Join sample and patient metadata
+sampleTable <- sampleTable %>% left_join(patient_metadata, by = "subject_ID")
+
+# Change visits to dose and time point...
+sampleTable <- sampleTable %>%
+  mutate(
+    dose = as.factor(plyr::mapvalues(visit,
+      from = c(1, 2, 4, 5, 10, 11, 12),
+      to   = c("0_dose1", "24_dose1", "0_dose2", "24_dose2", "0_dose3", "24_dose3", "48_dose3")
+    )),
+    group = as.factor(group)
+  ) %>%
+  # ...(sex) 0 and 1 to male and female...
+  mutate(
+    sex = as.factor(plyr::mapvalues(sex,
+      from = c(0, 1),
+      to   = c("male", "female")
+    )),
+    group = as.factor(sex)
+  ) %>%
+  # ...(prior covid) 0 and 1 to neg and pos
+  mutate(
+    prior_covid19 = as.factor(plyr::mapvalues(prior_covid19,
+      from = c(0, 1),
+      to   = c("neg", "pos")
+    )),
+    group = as.factor(prior_covid19)
+  )
+
+# Remove 24dose_2 from subject 21 (missing 0dose_2)
+sampleTable <- subset(sampleTable, sample_ID != "P22761_1037_S37")
+
+# Remove one sample from subject 7 (sample replicate)
+sampleTable <- subset(sampleTable, sample_ID != "P26208_1060_S62")
+
+# Remove individual that was not vaccinated in dose 3 and dose 2
+sampleTable <- subset(sampleTable, sample_ID != "P27910_1044_S44")
+sampleTable <- subset(sampleTable, sample_ID != "P27910_1031_S31")
+sampleTable <- subset(sampleTable, sample_ID != "P27910_1037_S37")
+
+# test which one to remove to evaluate effect of single samples
+#sampleTable <- sampleTable %>% filter(group != "pos" | batch != "third" | visit != 4 & visit != 5)
+#test <- sampleTable %>% filter(group == "pos", batch == "third", visit == 5 | visit == 4) 
+sampleTable <- sampleTable %>% filter(batch != "third")
+
+#sampleTable <- sampleTable %>%
+#  filter(!(sample_ID %in% (test %>% filter(!(test$subject_ID %in% unique(test$subject_ID)[c(2,4:6)])) %>% pull(sample_ID))))
+
+#sampleTable <- sampleTable %>% filter(sample_ID %in% test$sample_ID)
+
+# Remove corresponding samples from count table
+#counts_raw <- counts_raw %>% select(-c(setdiff(colnames(counts_raw), sampleTable$sample_ID))) this one doesn't work
+counts_raw <- subset(counts_raw, select = -c(P26208_1060_S62, P22761_1037_S37))
+
+
+# Match count data with sample table
+colnames(counts_raw) <- sampleTable$sample_ID
+counts_raw <- counts_raw[, pmatch(sampleTable$sample_ID, colnames(counts_raw))]
+all(rownames(sampleTable$sample_ID) == colnames(counts_raw))
+
+# Read antibody data
+antibody_data <- read.csv("../data/antibody_data/2022-04-26_antibody-binding-avidity.csv")
+
+# Load BTM modules
+gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
+
+```
+
+
+Removing reads with the log2 of the counts per million (cpm) lower than 1 (= 45896 genes). Plot genes detection rate across samples, comparing raw and filtered counts.
+
+```{r}
+
+meanLog2CPM <- rowMeans(log2(cpm(counts_raw) + 1))
+counts_filtered <- counts_raw[meanLog2CPM > 1, ]
+
+hist(rowSums(counts_raw > 3), main = title("Raw Counts"))
+hist(rowSums(counts_filtered > 3), main = title("Filtered Counts"))
+
+```
+
+
+```
+
+```
+
+#DESeq 
+```{r}
+
+# Prepare for DESeq by creating new variables and factorizing 
+sampleTable <- sampleTable %>%
+  mutate(
+    conditions = paste0(sampleTable$group, "_", sampleTable$dose),
+    time = gsub(".{6}$", "", conditions),
+    conditions = factor(conditions),
+    subject_ID = factor(subject_ID),
+    time = factor(time),
+    sex = factor(sex),
+    dose = factor(dose),
+    group = factor(group),
+    batch = factor(batch)
+  )
+
+# create 3 DESeq objects comparing against conditions, time and dose
+
+dds1 <- DESeqDataSetFromMatrix(
+  countData = round(counts_filtered),
+  colData = as.data.frame(sampleTable),
+  design = ~ sex + age + batch + conditions
+)
+
+dds2 <- DESeqDataSetFromMatrix(
+  countData = round(counts_filtered),
+  colData = as.data.frame(sampleTable),
+  design = ~ sex + age + batch + time
+)
+
+dds3 <- DESeqDataSetFromMatrix(
+  countData = round(counts_filtered),
+  colData = as.data.frame(sampleTable),
+  design = ~ sex + age + batch + dose
+)
+
+
+```
+```
+```
+#DESeq experiments
+
+```{r}
+dds1 <-  estimateSizeFactors(dds1)
+
+counts_vst <- assay(vst(dds1, blind = FALSE))
+
+counts_filtered_vst <- counts_vst[, pmatch(sampleTable$sample_ID, colnames(counts_vst))]
+#colnames(rpkm_filtered) <- sampleTable$sample_ID
+counts_filtered_vst <- counts_filtered_vst[rowSums(counts_filtered_vst > 5) >= 32,]
+
+all(rownames(sampleTable$sample_ID) == colnames(counts_filtered_vst))
+
+colnames(counts_filtered_vst) <- plyr::mapvalues(colnames(counts_filtered_vst), from = sampleTable$sample_ID, to = paste(sampleTable$subject_ID, sampleTable$dose,sep="_"))
+
+sampleTable <- sampleTable %>% mutate(ID_time_dose = paste(subject_ID, dose, sep = "_"))
+rownames(sampleTable) <- sampleTable$ID_time_dose
+
+# Run the DESeq2 analysis
+dds1 <- DESeq(dds1, parallel = TRUE)
+#resApeT <- lfcShrink(dds1, coef=2, type="apeglm", lfcThreshold=1)
+#res <- results(resApeT)
+#dds1 <- lfcShrink(dds1,  type = "apeglm", coef = 2,  lfcThreshold=1, res = results(dds1, contrast = c("conditions", "pos_24_dose2", "pos_0_dose2"), format = "DataFrame"))
+
+
+dds2 <- DESeq(dds2, parallel = TRUE)
+dds3 <- DESeq(dds3, parallel = TRUE)
+
+# Contrast
+resultsNames(dds1)
+resultsNames(dds2)
+resultsNames(dds3)
+
+results(dds1)
+
+
+
+counts_filtered_vst_alfa <- counts_filtered_vst[order(row.names(counts_filtered_vst)), ]
+
+
+
+
+
+#chatgpts
+
+# Set the seed for reproducibility
+# set.seed(140)
+# 
+# # Extract the unique sample names (to_loop)
+# to_loop <- unique(sub("_.*", "", colnames(counts_filtered_vst)))
+# 
+# # Function to calculate fold change
+# calculate_fold_change <- function(column, counts_data) {
+#   pattern_0_dose1 <- paste(column, "0_dose1", sep = "_")
+#   pattern_24_dose1 <- paste(column, "24_dose1", sep = "_")
+#   pattern_0_dose2 <- paste(column, "0_dose2", sep = "_")
+#   pattern_24_dose2 <- paste(column, "24_dose2", sep = "_")
+#   pattern_0_dose3 <- paste(column, "0_dose3", sep = "_")
+#   pattern_24_dose3 <- paste(column, "24_dose3", sep = "_")
+#   pattern_48_dose3 <- paste(column, "48_dose3", sep = "_")
+# 
+#   if (column == "222-21") {
+#     fold_changes <- data.frame(
+#       genes = rownames(counts_data),
+#       FC_dose1 = counts_data[, pattern_24_dose1] / counts_data[, pattern_0_dose1],
+#       FC_dose2 = NA
+#     )
+#   } else if (!pattern_0_dose3 %in% colnames(counts_data)) {
+#     fold_changes <- data.frame(
+#       genes = rownames(counts_data),
+#       FC_dose1 = counts_data[, pattern_24_dose1] / counts_data[, pattern_0_dose1],
+#       FC_dose2 = counts_data[, pattern_24_dose2] / counts_data[, pattern_0_dose2]
+#     )
+#   } else {
+#     fold_changes <- data.frame(
+#       genes = rownames(counts_data),
+#       FC_dose1 = counts_data[, pattern_24_dose1] / counts_data[, pattern_0_dose1],
+#       FC_dose2 = counts_data[, pattern_24_dose2] / counts_data[, pattern_0_dose2],
+#       FC_dose3 = counts_data[, pattern_24_dose3] / counts_data[, pattern_0_dose3],
+#       FC_dose3_48 = counts_data[, pattern_48_dose3] / counts_data[, pattern_0_dose3]
+#     )
+#   }
+#   
+#   return(fold_changes)
+# }
+# 
+# # Calculate fold changes using lapply
+# fold_changes_list <- lapply(to_loop, calculate_fold_change, counts_data = counts_filtered_vst)
+# 
+# # Combine the results into a data frame
+# fold_changes <- data.table::rbindlist(fold_changes_list, idcol = TRUE, fill = TRUE) %>%
+#   dplyr::rename(sample_ID = .id) %>%
+#   tidyr::pivot_wider(names_from = sample_ID,
+#                      values_from = c(FC_dose1, FC_dose2, FC_dose3, FC_dose3_48)) %>%
+#   as.data.frame()
+# 
+# # Check the first few rows of the fold_changes data frame
+# head(fold_changes)
+
+set.seed(140)
+to_loop <- unique(sub( "_.*","",colnames(counts_filtered_vst)))
+
+df <- list()
+for (column in to_loop){
+  print(column)
+  pattern_0_dose1 <- paste(column, "0_dose1",sep="_")
+  pattern_24_dose1 <- paste(column, "24_dose1",sep="_")
+  pattern_0_dose2 <- paste(column, "0_dose2",sep="_")
+  pattern_24_dose2 <- paste(column, "24_dose2",sep="_")
+  pattern_0_dose3 <- paste(column, "0_dose3",sep="_")
+  pattern_24_dose3 <- paste(column, "24_dose3",sep="_")
+  pattern_48_dose3 <- paste(column, "48_dose3",sep="_")
+  
+  if(column == "222-21"){
+     df[[column]] <- data.frame(genes = rownames(counts_filtered_vst),
+                                FC_dose1 = counts_filtered_vst[,pattern_24_dose1]/counts_filtered_vst[,pattern_0_dose1],
+                                FC_dose2 = NA)
+  }else if(!pattern_0_dose3 %in% colnames(counts_filtered_vst)){
+    df[[column]] <- data.frame(genes = rownames(counts_filtered_vst),
+                                FC_dose1 = counts_filtered_vst[,pattern_24_dose1]/counts_filtered_vst[,pattern_0_dose1],
+                                FC_dose2 = counts_filtered_vst[,pattern_24_dose2]/counts_filtered_vst[,pattern_0_dose2])
+  }else{
+     df[[column]] <- data.frame(genes = rownames(counts_filtered_vst),
+                                FC_dose1 = counts_filtered_vst[,pattern_24_dose1]/counts_filtered_vst[,pattern_0_dose1],
+                                FC_dose2 = counts_filtered_vst[,pattern_24_dose2]/counts_filtered_vst[,pattern_0_dose2],
+                                FC_dose3 =  counts_filtered_vst[,pattern_24_dose3]/counts_filtered_vst[,pattern_0_dose3]#,
+                               # FC_dose3_48 = counts_filtered_vst[,pattern_48_dose3]/counts_filtered_vst[,pattern_0_dose3]
+                               )
+  }
+}
+  
+fold_changes <- data.table::rbindlist(df, idcol = TRUE, fill = TRUE) %>%
+  dplyr::rename(sample_ID = .id) %>%
+  tidyr::pivot_wider(names_from = sample_ID,
+                     values_from = c(FC_dose1,FC_dose2, FC_dose3#, FC_dose3_48
+                                     )) %>%
+  as.data.frame()
+
+fold_changes <- data.frame(fold_changes, row.names = 1) %>%
+  janitor::remove_empty(which = "cols") %>%
+  as.matrix()
+
+fold_changes <- fold_changes[order(row.names(fold_changes)), ]
+
+
+# Log normalization
+fold_changes <- log2(fold_changes)
+# Z-score normalization and centering
+fold_changes_norm <- t(scale(t(fold_changes)))
+fold_changes_norm <- fold_changes_norm[!is.infinite(rowSums(fold_changes_norm)),]
+
+metadata_2 <- sampleTable %>%
+  mutate(heatmap_ID = paste0("FC", gsub("0|24","",dose),"_", gsub("-",".", subject_ID)),
+         dose = gsub("0|24|_","",dose)) %>%
+  dplyr::select(heatmap_ID,group, dose) %>%
+  distinct()
+rownames(metadata_2) <- metadata_2$heatmap_ID
+
+# Generate new metadata containing subject ID and group only
+metadata_3 <- metadata_2 %>%
+  mutate(subject_ID = gsub(".*_","",heatmap_ID)) %>%
+  tibble::rownames_to_column("samples") %>%
+  dplyr::select(subject_ID, group) %>%
+  distinct()
+
+variable_to_predict <- "Spike_W6"
+if(grepl("Avidity",variable_to_predict)){
+  antibody_data_to_merge <- antibody_data %>%
+  dplyr::select(sample_ID, all_of(variable_to_predict), prior_COVID.19)
+  print("Avidity data detected, raw perentage valued used")
+}else{
+  antibody_data_to_merge <- antibody_data
+  antibody_data_to_merge[[variable_to_predict]] <- log10(antibody_data[[variable_to_predict]])
+  antibody_data_to_merge <- antibody_data_to_merge %>%
+  dplyr::select(sample_ID, variable_to_predict, prior_COVID.19)
+  print("Not avidity data, assuming it is antibody titer, thus the data is log10 normalized")
+}
+```
+
+## Creating data tables...
+```{r}
+#btm_genes_names <- btm_modules %>% pull(`Module member genes`) %>% stringr::str_split(",") %>% unlist()
+#btm_genes_names <- paste(btm_genes_names,collapse = "|")
+top_1000 <- rownames(fold_changes)
+
+fold_changes_ab_data <- fold_changes %>% 
+  t() %>%
+  as.data.frame() %>%
+  # Select only the top variables that contribute to the first dimensions
+  #select_if(colnames(.) %in% top_1000$name) %>%
+  #select_if(colnames(.) %in% top_1000) %>%
+  # Select only the genes from MO and IFN gene set modules
+  #select_if(grepl(btm_genes_names,colnames(.))) %>%
+  tibble::rownames_to_column("sample_ID") %>%
+  tidyr::separate(sample_ID, into = c("X","dose", "subject_ID"), sep = "_") %>%
+  tidyr::pivot_wider(names_from = "dose", values_from = c(everything(), -"subject_ID", -"X", -"dose")) %>%
+  left_join(metadata_3,by = "subject_ID") %>%
+  mutate(sample_ID = gsub("\\.","-",subject_ID)) %>%
+  left_join(antibody_data_to_merge, by="sample_ID") %>%
+  dplyr::select(-X) %>%
+  mutate(avidity_classes = cut(.[[variable_to_predict]], 2, labels=FALSE),
+         avidity_classes = paste0("class", avidity_classes)) %>%
+  relocate(c("sample_ID","subject_ID","group",variable_to_predict,"avidity_classes" ))
+
+Hfold_changes_ab_data <- fold_changes %>% as.data.frame() #%>%
+ 
+  Hfold_changes_ab_data <- t(Hfold_changes_ab_data)
+  Hfold_changes_ab_data <- as.data.frame(Hfold_changes_ab_data)
+   Hfold_changes_ab_data <-   tibble::rownames_to_column(Hfold_changes_ab_data,"sample_ID")
+  
+   Hfold_changes_ab_data <- tidyr::separate(Hfold_changes_ab_data, sample_ID, into = c("X","dose", "subject_ID"), sep = "_")
+  
+   Hfold_changes_ab_data <- Hfold_changes_ab_data %>% slice(1:41)
+   
+   Hfold_changes_ab_data <- tidyr::pivot_wider(Hfold_changes_ab_data, names_from = 'dose', values_from = c(everything(), -"subject_ID", -"X", -"dose"))
+  
+  
+# Select only the top variables that contribute to the first dimensions
+  #select_if(colnames(.) %in% top_1000$name) %>%
+  #select_if(colnames(.) %in% top_1000) %>%
+  # Select only the genes from MO and IFN gene set modules
+  #select_if(grepl(btm_genes_names,colnames(.))) %>%
+  tibble::rownames_to_column("sample_ID") %>%
+  tidyr::separate(sample_ID, into = c("X","dose", "subject_ID"), sep = "_") %>%
+  tidyr::pivot_wider(names_from = "dose", values_from = c(everything(), -"subject_ID", -"X", -"dose")) %>%
+  left_join(metadata_3,by = "subject_ID") %>%
+  mutate(sample_ID = gsub("\\.","-",subject_ID)) %>%
+  left_join(antibody_data_to_merge, by="sample_ID") %>%
+  dplyr::select(-X) %>%
+  mutate(avidity_classes = cut(.[[variable_to_predict]], 2, labels=FALSE),
+         avidity_classes = paste0("class", avidity_classes)) %>%
+  relocate(c("sample_ID","subject_ID","group",variable_to_predict,"avidity_classes" ))
+
+
+
+
+
+
+
+
+
+
+unnest(fold_changes_ab_data, A1BG_dose1) 
+
+
+#as.data.table(fold_changes_ab_data)[, unlist(fold_changes_ab_data[,6], by = list(row, col1)]$col1
+
+
+
+
+fold_changes_ab_spearman_data <- fold_changes_norm %>% 
+  t() %>%
+  as.data.frame() %>%
+  # Select only the top variables that contribute to the first dimensions
+  #select_if(colnames(.) %in% top_1000$name) %>%
+  #select_if(colnames(.) %in% top_1000$name) %>%
+  # Select only the genes from MO and IFN gene set modules
+  #select_if(grepl(btm_genes_names,colnames(.))) %>%
+  tibble::rownames_to_column("sample_ID") %>%
+  tidyr::separate(sample_ID, into = c("X","dose", "subject_ID"), sep = "_") %>%
+  tidyr::pivot_wider(names_from = "dose", values_from = c(everything(), -"subject_ID", -"X", -"dose")) %>%
+  left_join(metadata_3,by = "subject_ID") %>%
+  mutate(sample_ID = gsub("\\.","-",subject_ID)) %>%
+  left_join(antibody_data_to_merge, by="sample_ID") %>%
+  dplyr::select(-X) %>%
+  mutate(avidity_classes = cut(.[[variable_to_predict]], 2, labels=FALSE),
+         avidity_classes = paste0("class", avidity_classes)) %>%
+  relocate(c("sample_ID","subject_ID","group",variable_to_predict,"avidity_classes" ))
+
+
+
+
+
+
+# fold_changes_ab_data <- fold_changes_ab_data %>% slice(1:15)
+# fold_changes_ab_spearman_data <- fold_changes_ab_spearman_data %>% slice(1:15)
+# 
+# 
+# 
+# 
+# 
+# 
+# fold_changes_ab_data <- apply(fold_changes_ab_data,6,as.character)
+# fold_changes_ab_data <- as.data.frame(fold_changes_ab_data)
+# 
+# 
+# fold_changes_ab_datax = fold_changes_ab_data %>% as.data.frame(6:length(fold_changes_ab_data))
+# 
+# fold_changes_ab_datax <- as.data.frame(fold_changes_ab_datax)
+# 
+# 
+# foo = data.frame(col1 = c(1,2,3)) %>% mutate(col2 = list("a", "b", "c") %>% unlist())
+# 
+# 
+# deg_ds_d3 <- dplyr::select(fold_changes_ab_data, contains('AIM2'))
+
+
+ data.table::fwrite(fold_changes_ab_data, "../data/machine_learning_dataset/fold_changes_mofa.csv", row.names = F, sep = ",", na = NA, nThread = 8)
+
+ # 
+ data.table::fwrite(fold_changes_ab_spearman_data, "../data/machine_learning_dataset/fold_changes_correlation.csv", row.names = F, sep = ",",nThread = 8)
+
+write.csv(fold_changes_ab_data, file = "../data/machine_learning_dataset/fold_changes_mofa.csv", na = "NA")
+
+
+# 
+# # Assuming you have a DESeqDataSet object called 'dds'
+# 
+# # 1. Subset the DESeq data set
+# # Define the relevant columns for time points (e.g., 0h and 24h)
+# time_points <- c("0h", "24h")
+# 
+# # Define the relevant doses (e.g., dose 1, dose 2, dose 3)
+# doses <- c("dose1", "dose2", "dose3")
+# 
+# # Create an empty data frame to store the results
+# fold_changes <- data.frame()
+# 
+# # Loop through each dose
+# for (dose in doses) {
+#   # Subset the DESeq data for the current dose
+#   dose_data <- assay(dds)[, colData(dds)$dose == dose]
+# 
+#   # Loop through each gene
+#   for (gene_id in rownames(dose_data)) {
+#     # Calculate the fold change for each gene
+#     fc_values <- dose_data[gene_id, time_points[2]] / dose_data[gene_id, time_points[1]]
+# 
+#     # Handle missing data by substituting NA values
+#     if (any(is.na(fc_values))) {
+#       fc_values[is.na(fc_values)] <- NA
+#     }
+# 
+#     # Create a data frame for the fold change values
+#     fc_df <- data.frame(
+#       Gene = gene_id,
+#       Dose = dose,
+#       FoldChange = fc_values
+#     )
+# 
+#     # Append the results to the fold_changes data frame
+#     fold_changes <- rbind(fold_changes, fc_df)
+#   }
+# }
+# 
+# # 4. Organize the results in a structured data frame
+# # View the calculated fold changes
+# print(fold_changes)
+```
+
+## Calculating Fold Change by TPM: Loading data
+```{r}
+# Load raw counts
+
+# Filter for only protein coding genes or mitochondrial/ribosomic genes
+# gene_id_metadata <- read.csv("../data/metadata/2023-11-222_mart_export_gene_ids_hsa.txt") %>% filter(Gene.type %in% c("Mt_rRNA", "Mt_rRNA", "protein_coding", "rRNA"))
+
+gene_id_metadata <- read.csv("../data/metadata/2023-11-222_mart_export_gene_ids_hsa.txt") %>% filter(Gene.type %in% c("protein_coding"))
+
+tpm_gene <- data.table::fread("../data/processed_data_nfcore/batch_1-2/salmon/salmon.merged.gene_tpm.tsv",  header = TRUE, sep = "\t") %>% 
+  as.data.frame()
+
+tpm_fc <- tpm_gene
+
+#data_tpm1 <- tpm_fc
+
+colnames(tpm_gene) <- sub("_L001|_L002", "",colnames(tpm_gene))
+
+# Identify duplicated gene_names
+duplicated_genes <- tpm_gene$gene_name[duplicated(tpm_gene$gene_name)]
+
+# Replace duplicated gene_names with corresponding gene_ids /
+tpm_gene$gene_name <- ifelse(tpm_gene$gene_name %in% duplicated_genes,
+                               tpm_gene$gene_id,
+                               tpm_gene$gene_name)
+
+# Change row names to gene names
+rownames(tpm_gene) <- tpm_gene$gene_name
+tpm_gene <- dplyr::select(tpm_gene, -c(gene_name, gene_id))
+```
+
+## New chunk for updated filtering code
+
+```{r}
+
+# Load raw counts
+tpm_raw <- data.table::fread("../data/processed_data_nfcore/batch_1-2/salmon/salmon.merged.gene_tpm.tsv",
+                                  header = TRUE, sep = "\t") %>% 
+  as.data.frame() %>%
+  select(-gene_id)
+
+
+colnames(tpm_raw) <- sub("_L001|_L002", "",colnames(tpm_raw))
+
+
+# Aggregate and sum up genes with same gene symbol (sum up isoform of genes)
+tpm_raw <- tpm_raw[tpm_raw$gene_name %in% gene_id_metadata$Gene.name,]
+
+tpm_raw <- aggregate(tpm_raw[, -1], 
+                        list(gene_name = tpm_raw[, 1]), 
+                        FUN = sum)
+
+
+# Change row names to gene names
+rownames(tpm_raw) <- tpm_raw$gene_name
+tpm_raw <- dplyr::select(tpm_raw, -c(gene_name))
+
+tpm_gene <- tpm_raw
+```
+
+## Data analysis 
+```{r}
+# Remove corresponding samples from count table /Originally in Metadata chunk
+tpm_gene <- subset(tpm_gene, select = -c(P26208_1060_S62, P22761_1037_S37))
+
+# Match count data with sample table
+colnames(tpm_gene) <- sampleTable$sample_ID
+tpm_gene <- tpm_gene[, pmatch(sampleTable$sample_ID, colnames(tpm_gene))]
+all(rownames(sampleTable$sample_ID) == colnames(tpm_gene))
+
+
+
+
+ #colnames(data_tpm1) <- plyr::mapvalues(sub("_L001|_L002","",colnames(tpm_gene)), from = sampleTable$sample_ID, to = paste(sampleTable$subject_ID,sampleTable$dose, sampleTable$group, sampleTable$batch, sep = "_")) 
+
+cxcl10_data <- dplyr::filter(tpm_gene, grepl('CXCL10',rownames(tpm_gene)))
+
+
+# Use table() to count occurrences of each gene name
+#gene_counts <- table(tpm_fc$gene_name)
+
+# Convert the result to a data frame if needed
+#gene_counts_df <- as.data.frame(gene_counts)
+
+# Rename columns for clarity (optional)
+#colnames(gene_counts_df) <- c("GeneName", "Count")
+
+# View the resulting data frame with gene counts
+#print(gene_counts_df)
+```
+
+## Filtering low counts
+
+Removing reads with the log2 of the counts per million (cpm) lower than 1 (= 45896 genes). Plot genes detection rate across samples, comparing raw and filtered counts.
+```{r}
+#meanLog2TPM <- rowMeans(log2(cpm(tpm_gene) + 1))
+meanLog2TPM <- rowMeans(log2(tpm_gene + 1))
+tpm_filtered <- tpm_gene[meanLog2TPM > 0.1, ]
+
+
+#`ASAP2`, `ATP7B`, `BRCA2`, `C3`,  `C5`, `CACNA1A`,`FMNL2`,  `IL31RA`,  `MGAM2`,   `SIGLEC11`,   `UBQLNL`
+
+genes10_data <- dplyr::filter(tpm_filtered, grepl('UBQLNL',rownames(tpm_filtered))) 
+cxcl10_data <- dplyr::filter(tpm_filtered, grepl('CXCL10',rownames(tpm_filtered)))
+
+hist(rowSums(tpm_gene > 3), main = title("TPM Counts"))
+hist(rowSums(tpm_filtered > 3), main = title("Filtered TPM Counts"))
+
+```
+
+##Calculating TPM
+```{r}
+
+counts_filtered_tpm <- tpm_filtered[, pmatch(sampleTable$sample_ID, colnames(tpm_filtered))]
+#colnames(rpkm_filtered) <- sampleTable$sample_ID
+counts_filtered_tpm <- counts_filtered_tpm[rowSums(counts_filtered_tpm > 0) >= 0,]
+
+#cxcl_data <- dplyr::select(counts_filtered_tpm, contains('CXCL10'))
+
+cxcl_data <- dplyr::filter(counts_filtered_tpm, grepl('CXCL10',rownames(counts_filtered_tpm))) 
+
+
+all(rownames(sampleTable$sample_ID) == colnames(counts_filtered_tpm))
+
+colnames(counts_filtered_tpm) <- plyr::mapvalues(colnames(counts_filtered_tpm), from = sampleTable$sample_ID, to = paste(sampleTable$subject_ID, sampleTable$dose,sep="_"))
+
+sampleTable <- sampleTable %>% mutate(ID_time_dose = paste(subject_ID, dose, sep = "_"))
+rownames(sampleTable) <- sampleTable$ID_time_dose
+
+#pseudocount = 0.8
+counts_filtered_tpm <- counts_filtered_tpm %>% mutate(counts_filtered_tpm + 0.8)
+
+#Checking FC calculations prior to for-loop
+aatk_14_d1 <- counts_filtered_tpm[15,5]/counts_filtered_tpm[15,1]
+aatk_8_d2 <- counts_filtered_tpm[15,16]/counts_filtered_tpm[15,12]
+
+zyx_14_d1 <- counts_filtered_tpm[11894,5]/counts_filtered_tpm[11894,1]
+zyx_8_d2 <- counts_filtered_tpm[11894,16]/counts_filtered_tpm[11894,12]
+
+
+set.seed(140)
+to_loop <- unique(sub( "_.*","",colnames(counts_filtered_tpm)))
+
+df <- list()
+for (column in to_loop){
+  print(column)
+  pattern_0_dose1 <- paste(column, "0_dose1",sep="_")
+  pattern_24_dose1 <- paste(column, "24_dose1",sep="_")
+  pattern_0_dose2 <- paste(column, "0_dose2",sep="_")
+  pattern_24_dose2 <- paste(column, "24_dose2",sep="_")
+  pattern_0_dose3 <- paste(column, "0_dose3",sep="_")
+  pattern_24_dose3 <- paste(column, "24_dose3",sep="_")
+  pattern_48_dose3 <- paste(column, "48_dose3",sep="_")
+  
+  if(column == "222-21"){
+     df[[column]] <- data.frame(genes = rownames(counts_filtered_tpm),
+                                FC_dose1 = counts_filtered_tpm[,pattern_24_dose1]/counts_filtered_tpm[,pattern_0_dose1],
+                                FC_dose2 = NA)
+  }else if(!pattern_0_dose3 %in% colnames(counts_filtered_tpm)){
+    df[[column]] <- data.frame(genes = rownames(counts_filtered_tpm),
+                                FC_dose1 = counts_filtered_tpm[,pattern_24_dose1]/counts_filtered_tpm[,pattern_0_dose1],
+                                FC_dose2 = counts_filtered_tpm[,pattern_24_dose2]/counts_filtered_tpm[,pattern_0_dose2])
+  }else{
+     df[[column]] <- data.frame(genes = rownames(counts_filtered_tpm),
+                                FC_dose1 = counts_filtered_tpm[,pattern_24_dose1]/counts_filtered_tpm[,pattern_0_dose1],
+                                FC_dose2 = counts_filtered_tpm[,pattern_24_dose2]/counts_filtered_tpm[,pattern_0_dose2],
+                                FC_dose3 =  counts_filtered_tpm[,pattern_24_dose3]/counts_filtered_tpm[,pattern_0_dose3]#,
+                               # FC_dose3_48 = counts_filtered_vst[,pattern_48_dose3]/counts_filtered_vst[,pattern_0_dose3]
+                               )
+  }
+}
+  
+fold_changes_tpm <- data.table::rbindlist(df, idcol = TRUE, fill = TRUE) %>%
+  dplyr::rename(sample_ID = .id) %>%
+  tidyr::pivot_wider(names_from = sample_ID,
+                     values_from = c(FC_dose1,FC_dose2, FC_dose3#, FC_dose3_48
+                                     )) %>%
+  as.data.frame()
+
+fold_changes_tpm <- data.frame(fold_changes_tpm, row.names = 1) %>%
+  janitor::remove_empty(which = "cols") %>%
+  as.matrix()
+
+fold_changes_tpm <- fold_changes_tpm[order(row.names(fold_changes_tpm)), ]
+
+
+
+
+# Log normalization
+fold_changes_tpm <- log2(fold_changes_tpm)
+# Z-score normalization and centering
+fold_changes_norm_tpm <- t(scale(t(fold_changes_tpm)))
+fold_changes_norm_tpm <- fold_changes_norm_tpm[!is.infinite(rowSums(fold_changes_norm_tpm)),]
+
+metadata_2 <- sampleTable %>%
+  mutate(heatmap_ID = paste0("FC", gsub("0|24","",dose),"_", gsub("-",".", subject_ID)),
+         dose = gsub("0|24|_","",dose)) %>%
+  dplyr::select(heatmap_ID,group, dose) %>%
+  distinct()
+rownames(metadata_2) <- metadata_2$heatmap_ID
+
+# Generate new metadata containing subject ID and group only
+metadata_3 <- metadata_2 %>%
+  mutate(subject_ID = gsub(".*_","",heatmap_ID)) %>%
+  tibble::rownames_to_column("samples") %>%
+  dplyr::select(subject_ID, group) %>%
+  distinct()
+
+variable_to_predict <- "Spike_W6"
+if(grepl("Avidity",variable_to_predict)){
+  antibody_data_to_merge <- antibody_data %>%
+  dplyr::select(sample_ID, all_of(variable_to_predict), prior_COVID.19)
+  print("Avidity data detected, raw perentage valued used")
+}else{
+  antibody_data_to_merge <- antibody_data
+  antibody_data_to_merge[[variable_to_predict]] <- log10(antibody_data[[variable_to_predict]])
+  antibody_data_to_merge <- antibody_data_to_merge %>%
+  dplyr::select(sample_ID, variable_to_predict, prior_COVID.19)
+  print("Not avidity data, assuming it is antibody titer, thus the data is log10 normalized")
+}
+
+fold_changes_ab_TPM_data <- fold_changes_tpm %>% 
+  t() %>%
+  as.data.frame() %>%
+  # Select only the top variables that contribute to the first dimensions
+  #select_if(colnames(.) %in% top_1000$name) %>%
+  #select_if(colnames(.) %in% top_1000) %>%
+  # Select only the genes from MO and IFN gene set modules
+  #select_if(grepl(btm_genes_names,colnames(.))) %>%
+  tibble::rownames_to_column("sample_ID") %>%
+  tidyr::separate(sample_ID, into = c("X","dose", "subject_ID"), sep = "_") %>%
+  tidyr::pivot_wider(names_from = "dose", values_from = c(everything(), -"subject_ID", -"X", -"dose")) %>%
+  left_join(metadata_3,by = "subject_ID") %>%
+  mutate(sample_ID = gsub("\\.","-",subject_ID)) %>%
+  left_join(antibody_data_to_merge, by="sample_ID") %>%
+  dplyr::select(-X) %>%
+  mutate(avidity_classes = cut(.[[variable_to_predict]], 2, labels=FALSE),
+         avidity_classes = paste0("class", avidity_classes)) %>%
+  relocate(c("sample_ID","subject_ID","group",variable_to_predict,"avidity_classes" ))
+
+fold_changes_ab_spearman_TPM_data <- fold_changes_norm_tpm %>% 
+  t() %>%
+  as.data.frame() %>%
+  # Select only the top variables that contribute to the first dimensions
+  #select_if(colnames(.) %in% top_1000$name) %>%
+  #select_if(colnames(.) %in% top_1000$name) %>%
+  # Select only the genes from MO and IFN gene set modules
+  #select_if(grepl(btm_genes_names,colnames(.))) %>%
+  tibble::rownames_to_column("sample_ID") %>%
+  tidyr::separate(sample_ID, into = c("X","dose", "subject_ID"), sep = "_") %>%
+  tidyr::pivot_wider(names_from = "dose", values_from = c(everything(), -"subject_ID", -"X", -"dose")) %>%
+  left_join(metadata_3,by = "subject_ID") %>%
+  mutate(sample_ID = gsub("\\.","-",subject_ID)) %>%
+  left_join(antibody_data_to_merge, by="sample_ID") %>%
+  dplyr::select(-X) %>%
+  mutate(avidity_classes = cut(.[[variable_to_predict]], 2, labels=FALSE),
+         avidity_classes = paste0("class", avidity_classes)) %>%
+  relocate(c("sample_ID","subject_ID","group",variable_to_predict,"avidity_classes" ))
+
+
+ data.table::fwrite(fold_changes_ab_TPM_data, "../data/machine_learning_dataset/TPM_fold_changes_omics_protein_coding_3.csv", row.names = F, sep = ",", na = NA, nThread = 8)
+
+ # 
+ data.table::fwrite(fold_changes_ab_spearman_TPM_data, "../data/machine_learning_dataset/TPM_fold_changes_correlation_protein_coding_3.csv", row.names = F, sep = ",",nThread = 8)
+
+
+```
+
