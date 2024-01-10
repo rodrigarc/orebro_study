@@ -20,9 +20,16 @@ knitr::opts_knit$set(echo = TRUE,
                      message = FALSE)
 
 result.dir <- paste0("results/",Sys.Date(),"/")
+corr_figures.dir <- paste0("results/", Sys.Date(), "/", "corr_figures/")
 
 ## creates result.dir with date in if not existent
 ifelse(isFALSE(dir.exists(paste0("../",result.dir))), dir.create(paste0("../",result.dir),recursive = TRUE),"Result directory for today exists already!")
+
+ifelse(isFALSE(dir.exists(paste0("../", corr_figures.dir))),
+  dir.create(paste0("../", corr_figures.dir), recursive = TRUE),
+  "Result directory for today exists already!"
+)
+
 options(stringsAsFactors = FALSE) 
 ```
 
@@ -44,24 +51,30 @@ library(grDevices)
 # Read the transcript data
 transcript_data <- data.table::fread("../data/machine_learning_dataset/fold_changes_correlation.csv") 
 
+#transcript_data_tpm <- data.table::fread("../data/machine_learning_dataset/TPM_fold_changes_correlation_psdc.csv") 
+transcript_data_tpm <- data.table::fread("../data/machine_learning_dataset/TPM_fold_changes_correlation_protein_coding.csv") 
+
+transcript_data <- transcript_data_tpm
+
+#cxcl10_data <- dplyr::filter(transcript_data, grepl('CXCL10',rownames(transcript_data)))
 # Read the cytokine data
 cytokine_data <- data.table::fread("../data/cytokine_luminex/220406_luminex_edited_data_FC.csv")
 
 #DEG name list data objects
-deg_list_d1 <- data.table::fread("../data/machine_learning_dataset/Dose 1 0-24 hours.csv") 
-deg_list_d2 <- data.table::fread("../data/machine_learning_dataset/Dose 2 0-24 hours.csv") 
-deg_list_d3 <- data.table::fread("../data/machine_learning_dataset/Dose 3 0-24 hours.csv")
+deg_list_d1 <- data.table::fread("../data/machine_learning_dataset/protein_coding_degs/Dose 1 0-24 hours.csv") 
+deg_list_d2 <- data.table::fread("../data/machine_learning_dataset/protein_coding_degs/Dose 2 0-24 hours.csv") 
+deg_list_d3 <- data.table::fread("../data/machine_learning_dataset/protein_coding_degs/Dose 3 0-24 hours.csv")
 
-deg_list_d1_p <- data.table::fread("../data/machine_learning_dataset/nonpadj/Dose 1 0-24 hours.csv") 
-deg_list_d2_p <- data.table::fread("../data/machine_learning_dataset/nonpadj/Dose 2 0-24 hours.csv") 
-deg_list_d3_p <- data.table::fread("../data/machine_learning_dataset/nonpadj/Dose 3 0-24 hours.csv")
+# deg_list_d1_p <- data.table::fread("../data/machine_learning_dataset/nonpadj/Dose 1 0-24 hours.csv") 
+# deg_list_d2_p <- data.table::fread("../data/machine_learning_dataset/nonpadj/Dose 2 0-24 hours.csv") 
+# deg_list_d3_p <- data.table::fread("../data/machine_learning_dataset/nonpadj/Dose 3 0-24 hours.csv")
 
-deg_list_d1_exp <- data.table::fread("../data/machine_learning_dataset/Conv Dose 1 0-24 hours.csv")
-deg_list_d2_exp <- data.table::fread("../data/machine_learning_dataset/Conv Dose 2 0-24 hours.csv")
-deg_list_d3_exp <- data.table::fread("../data/machine_learning_dataset/Conv Dose 3 0-24 hours.csv")
-deg_list_d1_nai <- data.table::fread("../data/machine_learning_dataset/Naïve Dose 1 0-24 hours.csv")
-deg_list_d2_nai <- data.table::fread("../data/machine_learning_dataset/Naïve Dose 2 0-24 hours.csv")
-deg_list_d3_nai <- data.table::fread("../data/machine_learning_dataset/Naïve Dose 3 0-24 hours.csv")
+deg_list_d1_exp <- data.table::fread("../data/machine_learning_dataset/protein_coding_degs/Conv Dose 1 0-24 hours.csv")
+deg_list_d2_exp <- data.table::fread("../data/machine_learning_dataset/protein_coding_degs/Conv Dose 2 0-24 hours.csv")
+deg_list_d3_exp <- data.table::fread("../data/machine_learning_dataset/protein_coding_degs/Conv Dose 3 0-24 hours.csv")
+deg_list_d1_nai <- data.table::fread("../data/machine_learning_dataset/protein_coding_degs/Naïve Dose 1 0-24 hours.csv")
+deg_list_d2_nai <- data.table::fread("../data/machine_learning_dataset/protein_coding_degs/Naïve Dose 2 0-24 hours.csv")
+deg_list_d3_nai <- data.table::fread("../data/machine_learning_dataset/protein_coding_degs/Naïve Dose 3 0-24 hours.csv")
 
 
 ```
@@ -248,6 +261,48 @@ cyto_d3 <- cyto_ds %>% dplyr::filter(Timepoint %in% time_d3)
 #Dose 3 Cytokine correlation object 
 cyto_spear_d3 <- select(cyto_d3, c(4:34)) 
 
+#Testing if removing the 1's & NAs first affects the correlation heat maps
+
+#Dose 2 cytokine data
+
+not_all_ones <- function(x) {
+  x %>%
+    select(which(colSums(. == 1, na.rm = TRUE) < nrow(.)))
+}
+
+#NA removal function
+not_all_na <- function(x) any(!is.na(x))
+
+
+#Removing all 1s from cytokine data
+
+#Removing NAs and all 1's
+cyto_spear_d1 <- not_all_ones(cyto_spear_d1)
+cyto_spear_d1 <- as.data.frame(cyto_spear_d1) %>% select(where(not_all_na))
+
+
+
+
+#Removing NAs subject 21
+d2_spear <- na.omit(d2_spear)
+
+#Removing NAs and all 1's
+cyto_spear_d2 <- not_all_ones(cyto_spear_d2)
+cyto_spear_d2 <- as.data.frame(cyto_spear_d2) %>% select(where(not_all_na))
+
+#removing subject 21
+cyto_spear_d2 <- cyto_spear_d2[-8,] 
+  
+
+#Removing NAs subject 21, 15, 2
+d3_spear <- na.omit(d3_spear)
+
+#Removing NAs and all 1's
+cyto_spear_d3 <- as.data.frame(cyto_spear_d3) %>% select(where(not_all_na))
+
+#removing subject 21, 15, 2
+cyto_spear_d3 <- cyto_spear_d3[-c(4,7:8),] 
+cyto_spear_d3 <- not_all_ones(cyto_spear_d3)
 
 
 ```
@@ -257,7 +312,7 @@ Spearman correlation tests by dose both groups
 ```{r}
 
 #Spearman correlation test transcripts and cytokines after DEG filter Dose 1
-spearman_deg <- suppressWarnings(corr.test(d1_spear, cyto_spear_d1, method ="spearman", adjust ="fdr"))
+spearman_deg <- corr.test(d1_spear, cyto_spear_d1, method ="spearman", adjust ="fdr")
 hist(spearman_deg$p)
 #list of logical values 
 deg_sig_list <- spearman_deg$p.adj < 0.05 
@@ -271,7 +326,7 @@ as.data.frame(spearman_deg$r)[which(spearman_deg$r > 0.8),]
 
 
 #Spearman correlation test transcripts and cytokines after DEG filter Dose 2
-spearman_deg2 <- suppressWarnings(corr.test(d2_spear, cyto_spear_d2, method ="spearman", adjust ="fdr", ci = FALSE))
+spearman_deg2 <- corr.test(cyto_spear_d2, d2_spear,  method ="spearman", adjust ="fdr", ci = FALSE)
 #Generates list of p-values for each gene correlated with the proteins
 deg_sig_values2 <- spearman_deg2$p
 #list of logical values 
@@ -281,8 +336,9 @@ sum(spearman_deg2$p.adj < 0.05, na.rm = T )
 
 hist(deg_sig_values2)
 
+
 #Spearman correlation test transcripts and cytokines after DEG filter Dose 3
-spearman_deg3 <- suppressWarnings(corr.test(d3_spear, cyto_spear_d3, method ="spearman", adjust ="fdr", ci = FALSE))
+spearman_deg3 <- corr.test(cyto_spear_d3, d3_spear,  method ="spearman", adjust ="fdr", ci = FALSE)
 #Generates list of p-values for each gene correlated with the proteins
 deg_sig_values3 <- spearman_deg3$p
 #list of logical values 
@@ -291,18 +347,18 @@ deg_sig_list3 <- spearman_deg3$p.adj < 0.05
 sum(spearman_deg3$p.adj < 0.05, na.rm = T )
 
 hist(deg_sig_values3)
+
 ```
 
 ##Plotting correlations test
 ```{r}
 
-#NA removal function
-not_all_na <- function(x) any(!is.na(x))
 
 #Dose #2
 
 # Identify rows where any of the rows in the list are TRUE
 selected_rows <- apply(deg_sig_list2, 1, any)
+sum(selected_rows == T, na.rm = T)
 
 
 # Filter both matrices based on selected rows
@@ -310,23 +366,27 @@ selected_rows <- apply(deg_sig_list2, 1, any)
 filtered_r_value_matrix <- spearman_deg2$r[selected_rows, ]
 
 #Removes NA values
-filtered_r_value_matrix <- as.data.frame(filtered_r_value_matrix) %>% select(where(not_all_na))
-filtered_r_matrix <- na.omit(filtered_r_value_matrix)
+#filtered_r_value_matrix <- as.data.frame(filtered_r_value_matrix) %>% select(where(not_all_na))
+#filtered_r_matrix <- na.omit(filtered_r_value_matrix)
 
 #Plotting correlations
 #corrplot(spearman_deg2$r)
-corrplot(t(filtered_r_matrix), insig = 'blank')
+corrplot(filtered_r_value_matrix, insig = 'blank')
 
 #Saving plots
 {
-  pdf(paste0("../",result.dir,"spearman_dose2.pdf"),  width = 25, height = 25)
-  corrplot(t(filtered_r_matrix))
+  pdf(paste0("../",corr_figures.dir,"spearman_dose2_pc_degs.pdf"),  width = 25, height = 25)
+  corrplot(filtered_r_value_matrix)
   dev.off()
 }
 
+
+
+
 {
-  pdf(paste0("../",result.dir,"spearman_dose2_sig.pdf"),  width = 25, height = 25)
-  corrplot(t(filtered_r_matrix), insig = 'blank')
+  pdf(paste0("../",corr_figures.dir,"spearman_dose2_sigX_pcdegs.pdf"),  width = 25, height = 25)
+  corrplot(spearman_deg2$r, p.mat = spearman_deg2$p.adj, sig.level = 0.05, tl.cex = 0.5, insig ='blank',
+         )
   dev.off()
 }
 
@@ -351,21 +411,29 @@ filtered_r_value_matrix3 <- spearman_deg3$r[selected_rows3, ]
 
 
 #Removing NA values
-filtered_r_value_matrix3 <- as.data.frame(filtered_r_value_matrix3) %>% select(where(not_all_na))
-filtered_r_matrix3 <- na.omit(filtered_r_value_matrix3)
+#filtered_r_value_matrix3 <- as.data.frame(filtered_r_value_matrix3) %>% select(where(not_all_na))
+#filtered_r_matrix3 <- na.omit(filtered_r_value_matrix3)
 
-#corrplot(spearman_deg3$r)
-corrplot(t(filtered_r_matrix3))
+#corrplot(spearman_deg3$r) # code breaks!
+corrplot(filtered_r_value_matrix3)
 
 {
-  pdf(paste0("../",result.dir,"spearman_dose3.pdf"),  width = 25, height = 25)
-  corrplot(t(filtered_r_matrix3))
+  pdf(paste0("../",corr_figures.dir,"spearman_dose3.pdf"),  width = 25, height = 25)
+  corrplot(filtered_r_value_matrix3)
   dev.off()
 }
 
+{
+  pdf(paste0("../",corr_figures.dir,"spearman_dose3_sigX.pdf"),  width = 25, height = 25)
+  corrplot(spearman_deg3$r, p.mat = spearman_deg3$p.adj, sig.level = 0.05, tl.cex = 0.5, insig ='blank',
+         )
+  dev.off()
+}
+
+
 ```
 
-## Correlation tests by group: experienced or naive 
+## Correlation tests by group: experienced or naive data pre-processing
 ```{r}
 deg_dt_exp <- deg_dt_d %>% filter(group == "pos")
 deg_dt_nai <- deg_dt_d %>% filter(group == "neg")
@@ -406,6 +474,12 @@ d1_spears_nai <- deg_dt_d1_nai %>% select(one_of(deg_list_d1_nai$gene_symbol))
 d2_spears_nai <- deg_dt_d2_nai %>% select(one_of(deg_list_d2_nai$gene_symbol))
 d3_spears_nai <- deg_dt_d3_nai %>% select(one_of(deg_list_d3_nai$gene_symbol))
 
+#Removing NAs & missing values: Patient 21 from dose 2 & 2, 15, & 21 from dose 3
+d2_spears_exp <- na.omit(d2_spears_exp)
+
+d3_spears_exp <- na.omit(d3_spears_exp)
+
+d3_spears_nai <- na.omit(d3_spears_nai)
 
 # ## Dose 1+ corrtest object
 # deg_ds_d1_exp <- deg_ds_d1_exp %>% rownames_to_column(var = "sample_ID")
@@ -444,6 +518,9 @@ cyto_d1_exp <- cyto_spears_exp %>% dplyr::filter(Timepoint %in% time_d1)
 cyto_d1_exp <- column_to_rownames(cyto_d1_exp, var = "sample")
 cyto_spearsd1_exp <- select(cyto_d1_exp, c(3:length(cyto_d1_exp))) 
 
+cyto_spearsd1_exp <- not_all_ones(cyto_spearsd1_exp)
+cyto_spearsd1_exp <- as.data.frame(cyto_spearsd1_exp) %>% select(where(not_all_na))
+
 # #Matches samples against against the transcript data
 # name_group_match <- deg_dt_exp$sample
 # cyto_dt_d1_exp <- cyto_dt_d1_exp %>%
@@ -459,31 +536,52 @@ cyto_spearsd1_exp <- select(cyto_d1_exp, c(3:length(cyto_d1_exp)))
 cyto_d1_nai <- cyto_spears_nai %>% dplyr::filter(Timepoint %in% time_d1)
 cyto_d1_nai <- column_to_rownames(cyto_d1_nai, var = "sample")
 cyto_spearsd1_nai <- select(cyto_d1_nai, c(3:length(cyto_d1_nai))) 
-
+cyto_spearsd1_nai <-  not_all_ones(cyto_spearsd1_nai)
 
 #Dose 2
 cyto_d2_exp <- cyto_spears_exp %>% dplyr::filter(Timepoint %in% time_d2)
 cyto_d2_exp <- column_to_rownames(cyto_d2_exp, var = "sample")
 cyto_spearsd2_exp <- select(cyto_d2_exp, c(3:length(cyto_d2_exp))) 
 
+#Removing all 1s and NAs
+cyto_spearsd2_exp <-  not_all_ones(cyto_spearsd2_exp)
+cyto_spearsd2_exp <- as.data.frame(cyto_spearsd2_exp) %>% select(where(not_all_na))
+#removing patient 21
+cyto_spearsd2_exp <- cyto_spearsd2_exp[-4,] 
 
 #negative
 cyto_d2_nai <- cyto_spears_nai %>% dplyr::filter(Timepoint %in% time_d2)
 cyto_d2_nai <- column_to_rownames(cyto_d2_nai, var = "sample")
 cyto_spearsd2_nai <- select(cyto_d2_nai, c(3:length(cyto_d2_nai)))
 
+#Removing all 1s and NAs
+cyto_spearsd2_nai <-  not_all_ones(cyto_spearsd2_nai)
+cyto_spearsd2_nai <- as.data.frame(cyto_spearsd2_nai) %>% select(where(not_all_na))
 
 #Dose 3
+
+
 cyto_d3_exp <- cyto_spears_exp %>% dplyr::filter(Timepoint %in% time_d3)
 cyto_d3_exp <- column_to_rownames(cyto_d3_exp, var = "sample")
 cyto_spearsd3_exp <- select(cyto_d3_exp, c(3:length(cyto_d3_exp))) 
+#Removing all 1s and NAs
+cyto_spearsd3_exp <-  not_all_ones(cyto_spearsd3_exp)
+cyto_spearsd3_exp <- as.data.frame(cyto_spearsd3_exp) %>% select(where(not_all_na))
 
-
+#removing patient 21
+cyto_spearsd3_exp <- cyto_spearsd3_exp[-4,] 
 
 #negative
 cyto_d3_nai <- cyto_spears_nai %>% dplyr::filter(Timepoint %in% time_d3)
 cyto_d3_nai <- column_to_rownames(cyto_d3_nai, var = "sample")
 cyto_spearsd3_nai <- select(cyto_d3_nai, c(3:length(cyto_d3_nai))) 
+
+#removing patient 2 & 15
+cyto_spearsd3_nai <- cyto_spearsd3_nai[-c(3:4),] 
+
+#Removing all 1s and NAs
+cyto_spearsd3_nai <-  not_all_ones(cyto_spearsd3_nai)
+cyto_spearsd3_nai <- as.data.frame(cyto_spearsd3_nai) %>% select(where(not_all_na))
 
 ```
 
@@ -491,7 +589,7 @@ cyto_spearsd3_nai <- select(cyto_d3_nai, c(3:length(cyto_d3_nai)))
 ```{r}
 
 #Spearman correlation test transcripts and cytokines after DEG filter: D1+
-spearman_deg1_exp <- suppressWarnings(corr.test(d1_spears_exp, cyto_spearsd1_exp, method ="spearman", adjust ="fdr", ci = FALSE))
+spearman_deg1_exp <- corr.test(cyto_spearsd1_exp, d1_spears_exp,  method ="spearman", adjust ="fdr", ci = FALSE)
 #Generates list of p-values for each gene correlated with the proteins
 deg_sig_values1_exp <- spearman_deg1_exp$p
 #list of logical values 
@@ -499,17 +597,17 @@ deg_sig_list1_exp <- spearman_deg1_exp$p.adj < 0.05
 
 sum(spearman_deg1_exp$p.adj < 0.05, na.rm = T )
 
-# #Spearman correlation test transcripts and cytokines after DEG filter: D1-, 0 DEGs code breaks
-# spearman_deg1_nai <- corr.test(d1_spears_nai, cyto_spearsd1_nai, method ="spearman", adjust ="fdr", ci = FALSE)
-# #Generates list of p-values for each gene correlated with the proteins
-# deg_sig_values1_nai <- spearman_deg1_nai$p
-# #list of logical values
-# deg_sig_list1_nai <- spearman_deg1_nai$p.adj < 0.05
-# 
-# sum(spearman_deg1_nai$p.adj < 0.05, na.rm = T )
+ #Spearman correlation test transcripts and cytokines after DEG filter: D1-, 0 DEGs code breaks
+ #spearman_deg1_nai <- corr.test(d1_spears_nai, cyto_spearsd1_nai, method ="spearman", adjust ="fdr", ci = FALSE)
+ #Generates list of p-values for each gene correlated with the proteins
+#deg_sig_values1_nai <- spearman_deg1_nai$p
+#list of logical values
+#deg_sig_list1_nai <- spearman_deg1_nai$p.adj < 0.05
+
+#sum(spearman_deg1_nai$p.adj < 0.05, na.rm = T )
 
 #Spearman correlation test transcripts and cytokines after DEG filter: D2+
-spearman_deg2_exp <- suppressWarnings(corr.test(d2_spears_exp, cyto_spearsd2_exp, method ="spearman", adjust ="fdr", ci = FALSE))
+spearman_deg2_exp <- corr.test(cyto_spearsd2_exp, d2_spears_exp,  method ="spearman", adjust ="fdr", ci = FALSE)
 #Generates list of p-values for each gene correlated with the proteins
 deg_sig_values2_exp <- spearman_deg2_exp$p
 #list of logical values 
@@ -518,16 +616,16 @@ deg_sig_list2_exp <- spearman_deg2_exp$p.adj < 0.05
 sum(spearman_deg2_exp$p.adj < 0.05, na.rm = T )
 
 #Spearman correlation test transcripts and cytokines after DEG filter: D2-
-spearman_deg2_nai <- suppressWarnings(corr.test(d2_spears_nai, cyto_spearsd2_nai, method ="spearman", adjust ="fdr", ci = FALSE))
+spearman_deg2_nai <- corr.test( cyto_spearsd2_nai, d2_spears_nai, method ="spearman", adjust ="fdr", ci = FALSE)
 #Generates list of p-values for each gene correlated with the proteins
-deg_sig_values2_nai <- spearman_deg2_nai$p
+deg_sig_values2_nai <- spearman_deg2_nai$p.adj
 #list of logical values 
 deg_sig_list2_nai <- spearman_deg2_nai$p.adj < 0.05 
 
 sum(spearman_deg2_nai$p.adj < 0.05, na.rm = T )
 
 #Spearman correlation test transcripts and cytokines after DEG filter: D3+
-spearman_deg3_exp <- suppressWarnings(corr.test(d3_spears_exp, cyto_spearsd3_exp, method ="spearman", adjust ="fdr", ci = FALSE)) 
+spearman_deg3_exp <- corr.test( cyto_spearsd3_exp, d3_spears_exp, method ="spearman", adjust ="fdr", ci = FALSE)
 #Generates list of p-values for each gene correlated with the proteins
 deg_sig_values3_exp <- spearman_deg3_exp$p
 #list of logical values 
@@ -536,7 +634,7 @@ deg_sig_list3_exp <- spearman_deg3_exp$p.adj < 0.05
 sum(spearman_deg3_exp$p.adj < 0.05, na.rm = T )
 
 #Spearman correlation test transcripts and cytokines after DEG filter: D3-
-spearman_deg3_nai <- suppressWarnings(corr.test(d3_spears_nai, cyto_spearsd3_nai, method ="spearman", adjust ="fdr", ci = FALSE))
+spearman_deg3_nai <- corr.test( cyto_spearsd3_nai, d3_spears_nai, method ="spearman", adjust ="fdr", ci = FALSE)
 #Generates list of p-values for each gene correlated with the proteins
 deg_sig_values3_nai <- spearman_deg3_nai$p
 #list of logical values 
@@ -554,17 +652,26 @@ selected_rows_exp1 <- apply(deg_sig_list1_exp, 1, any)
 
 # Filter both matrices based on selected rows, removing NAs
 filtered_r_value_matrix_exp1 <- spearman_deg1_exp$r[selected_rows_exp1, ]
-filtered_r_value_matrix_exp1 <- as.data.frame(filtered_r_value_matrix_exp1) %>% select(where(not_all_na))
+#filtered_r_value_matrix_exp1 <- as.data.frame(filtered_r_value_matrix_exp1) %>% select(where(not_all_na))
 
-filtered_r_matrix_exp1 <- na.omit(filtered_r_value_matrix_exp1)
+#filtered_r_matrix_exp1 <- na.omit(filtered_r_value_matrix_exp1)
 
 #Plots
-r_matrix_filtered_exp1 <- t(filtered_r_matrix_exp1)
-corrplot(r_matrix_filtered_exp1 )
+#r_matrix_filtered_exp1 <- t(filtered_r_matrix_exp1)
+corrplot(filtered_r_value_matrix_exp1 )
+
+corrplot(spearman_deg1_exp$r, p.mat = spearman_deg1_exp$p.adj, sig.level = 0.05,  tl.cex = 0.5, insig ='blank'  )
 
 {
-  pdf(paste0("../",result.dir,"spearman_dose1_exp.pdf"),  width = 25, height = 25)
-  corrplot(r_matrix_filtered_exp1)
+  pdf(paste0("../",corr_figures.dir,"spearman_dose1_exp.pdf"),  width = 25, height = 25)
+  corrplot(filtered_r_value_matrix_exp1)
+  dev.off()
+}
+
+{
+  pdf(paste0("../",corr_figures.dir,"spearman_dose1_exp_insigblank.pdf"),  width = 25, height = 25)
+  corrplot(spearman_deg1_exp$r, p.mat = spearman_deg1_exp$p.adj, sig.level = 0.05, tl.cex = 0.5, insig ='blank',
+         )
   dev.off()
 }
 
@@ -592,61 +699,115 @@ corrplot(r_matrix_filtered_exp1 )
 
 # Identify rows where any of the columns have significant correlations: D2+
 selected_rows_exp2 <- apply(deg_sig_list2_exp, 1, any)
+#columns
+selected_cols_exp2 <- apply(deg_sig_list2_exp, 2, any)
 
 # Filter both matrices based on selected rows, removing NAs
-filtered_r_value_matrix_exp2 <- spearman_deg2_exp$r[selected_rows_exp2, ]
-filtered_r_value_matrix_exp2 <- as.data.frame(filtered_r_value_matrix_exp2) %>% select(where(not_all_na))
+filtered_r_value_matrix_exp2 <- spearman_deg2_exp$r[selected_rows_exp2,selected_cols_exp2 ]
+filtered_p_value_matrix_exp2 <- spearman_deg2_exp$p.adj[selected_rows_exp2,selected_cols_exp2 ]
+
+#filtered_r_value_matrix_exp2 <- as.data.frame(filtered_r_value_matrix_exp2) %>% select(where(not_all_na))
 #filtered_r_value_matrix_exp1 <- filtered_r_value_matrix_exp1[,-c(6, 9, 11, 13:15, 17, 20, 22, 25:26, 30)]
-filtered_r_matrix_exp2 <- na.omit(filtered_r_value_matrix_exp2)
+#filtered_r_matrix_exp2 <- na.omit(filtered_r_value_matrix_exp2)
 
 #Plots
-r_matrix_filtered_exp2 <- t(filtered_r_matrix_exp2)
-corrplot(r_matrix_filtered_exp2)
+#r_matrix_filtered_exp2 <- t(filtered_r_matrix_exp2)
+corrplot(filtered_r_value_matrix_exp2, p.mat = filtered_p_value_matrix_exp2, sig.level =  0.05, tl.cex = 0.4, 
+           insig ='label_sig',)
+
+corrplot(spearman_deg2_exp$r, p.mat = spearman_deg2_exp$p.adj, sig.level = 0.05,  tl.cex = 0.5, insig ='blank'  )
 
 {
-  pdf(paste0("../",result.dir,"spearman_dose2_exp.pdf"),  width = 25, height = 25)
-  corrplot(r_matrix_filtered_exp2)
+  pdf(paste0("../",corr_figures.dir,"spearman_dose2_exp_significant.pdf"),  width = 8, height = 8)
+  corrplot(filtered_r_value_matrix_exp2, p.mat = filtered_p_value_matrix_exp2, sig.level =  0.05, tl.cex = 0.4, 
+           insig ='label_sig',)
   dev.off()
 }
+
+{
+  pdf(paste0("../",corr_figures.dir,"spearman_dose2_exp_sig.pdf"),  width = 75, height = 75)
+  corrplot(spearman_deg2_exp$r, p.mat = spearman_deg2_exp$p.adj, sig.level = 0.05, tl.cex = 0.4, #sig.level = c(0.001, 0.01, 0.05),
+           insig ='label_sig',
+         )
+  dev.off()
+}
+
 
 # Identify rows where any of the columns have significant correlations: D2-
 selected_rows_nai2 <- apply(deg_sig_list2_nai, 1, any)
+selected_cols_nai2 <- apply(deg_sig_list2_nai, 2, any)
 
 # Filter both matrices based on selected rows, removing NAs
-filtered_r_value_matrix_nai2 <- spearman_deg2_nai$r[selected_rows_nai2, ]
-filtered_r_value_matrix_nai2<- as.data.frame(filtered_r_value_matrix_nai2)
+filtered_r_value_matrix_nai2 <- spearman_deg2_nai$r[selected_rows_nai2,selected_cols_nai2 ]
+filtered_p_value_matrix_nai2 <- spearman_deg2_nai$p.adj[selected_rows_nai2,selected_cols_nai2 ]
+#filtered_r_value_matrix_nai2<- as.data.frame(filtered_r_value_matrix_nai2)
 
-filtered_r_value_matrix_nai2 <- as.data.frame(filtered_r_value_matrix_nai2) %>% select(where(not_all_na))
-filtered_r_matrix_nai2 <- na.omit(filtered_r_value_matrix_nai2)
+
+
+# Example: Select rows with the 20 lowest p-values
+#selected_rows_nai2 <- head(order(apply(deg_sig_values2_nai, 1, min)), 20)
+# Example: Select columns with the 20 lowest p-values
+selected_cols_nai2 <- head(order(apply(deg_sig_values2_nai, 2, min)), 20)
+
+
+# Filter both matrices based on selected rows, removing NAs
+filtered_r_value_matrix_nai2 <- spearman_deg2_nai$r[selected_rows_nai2,selected_cols_nai2 ]
+filtered_p_value_matrix_nai2 <- spearman_deg2_nai$p.adj[selected_rows_nai2,selected_cols_nai2 ]
+
+#filtered_r_value_matrix_nai2 <- as.data.frame(filtered_r_value_matrix_nai2) %>% select(where(not_all_na))
+#filtered_r_matrix_nai2 <- na.omit(filtered_r_value_matrix_nai2)
 
 #Plots
-r_matrix_filtered_nai2 <- t(filtered_r_matrix_nai2)
-corrplot(r_matrix_filtered_nai2)
+#r_matrix_filtered_nai2 <- t(filtered_r_matrix_nai2)
+corrplot(filtered_r_value_matrix_nai2)
+
+corrplot(spearman_deg2_nai$r, p.mat = spearman_deg2_nai$p.adj, sig.level = 0.05,  tl.cex = 0.5, insig ='blank'  )
+
+corrplot(filtered_r_value_matrix_nai2, p.mat = filtered_p_value_matrix_nai2, sig.level =  0.05, tl.cex = 1, 
+           insig ='label_sig',)
 
 {
-  pdf(paste0("../",result.dir,"spearman_dose2_naive.pdf"),  width = 25, height = 25)
-  corrplot(r_matrix_filtered_nai2)
-  dev.off()
+  pdf(paste0("../",corr_figures.dir,"spearman_dose2_naive_significant_top20.pdf"),  width = 10, height = 10)
+  corrplot(filtered_r_value_matrix_nai2, p.mat = filtered_p_value_matrix_nai2, sig.level =  0.05, tl.cex = .8, 
+           insig ='label_sig',)
+
+    dev.off()
 }
 
+{
+  pdf(paste0("../",corr_figures.dir,"spearman_dose2_nai_insigblank.pdf"),  width = 25, height = 25)
+  corrplot(spearman_deg2_nai$r, p.mat = spearman_deg2_nai$p.adj, sig.level = 0.05, tl.cex = 0.5, insig ='blank',
+         )
+  dev.off()
+}
 
 #dose 3 +/-
 # Identify rows where any of the columns have significant correlations: D3+
 selected_rows_exp3 <- apply(deg_sig_list3_exp, 1, any)
 
 # Filter both matrices based on selected rows, removing NAs
-filtered_r_value_matrix_exp3 <- spearman_deg3_exp$r[selected_rows_exp3, ]
+filtered_r_value_matrix_exp3 <- spearman_deg3_exp$r[selected_rows_exp3, ] #Only one protein correlation is significant so we lose the rows
 
-filtered_r_value_matrix_exp3 <- as.data.frame(filtered_r_value_matrix_exp3) %>% select(where(not_all_na))
-filtered_r_matrix_exp3 <- na.omit(filtered_r_value_matrix_exp3)
+#filtered_r_value_matrix_exp3 <- as.data.frame(filtered_r_value_matrix_exp3) %>% select(where(not_all_na))
+#filtered_r_matrix_exp3 <- na.omit(filtered_r_value_matrix_exp3)
 
 #Plots
-r_matrix_filtered_exp3 <- t(filtered_r_matrix_exp3)
-corrplot(r_matrix_filtered_exp3)
+#r_matrix_filtered_exp3 <- filtered_r_matrix_exp3
+#corrplot(filtered_r_value_matrix_exp3)
+
+corrplot(spearman_deg3_exp$r, p.mat = spearman_deg3_exp$p.adj, sig.level = 0.05,  tl.cex = 0.5, insig ='blank'  )
+
+
+# {
+#   pdf(paste0("../",result.dir,"spearman_dose3_exp.pdf"),  width = 25, height = 25)
+#   corrplot(r_matrix_filtered_exp3)
+#   dev.off()
+# }
 
 {
-  pdf(paste0("../",result.dir,"spearman_dose3_exp.pdf"),  width = 25, height = 25)
-  corrplot(r_matrix_filtered_exp3)
+  pdf(paste0("../",corr_figures.dir,"spearman_dose3_exp_insigblank.pdf"),  width = 25, height = 25)
+  corrplot(spearman_deg3_exp$r, p.mat = spearman_deg3_exp$p.adj, sig.level = 0.05, tl.cex = 0.5, insig ='blank',
+         )
   dev.off()
 }
 
@@ -656,20 +817,80 @@ selected_rows_nai3 <- apply(deg_sig_list3_nai, 1, any)
 
 # Filter both matrices based on selected rows, removing NAs
 filtered_r_value_matrix_nai3 <- spearman_deg3_nai$r[selected_rows_nai3, ]
-filtered_r_value_matrix_nai3 <- as.data.frame(filtered_r_value_matrix_nai3)
+#filtered_r_value_matrix_nai3 <- as.data.frame(filtered_r_value_matrix_nai3)
 
-filtered_r_value_matrix_nai3 <- as.data.frame(filtered_r_value_matrix_nai3) %>% select(where(not_all_na))
-filtered_r_matrix_nai3 <- na.omit(filtered_r_value_matrix_nai3)
+#filtered_r_value_matrix_nai3 <- as.data.frame(filtered_r_value_matrix_nai3) %>% select(where(not_all_na))
+#filtered_r_matrix_nai3 <- na.omit(filtered_r_value_matrix_nai3)
 
 #Plots
-r_matrix_filtered_nai3 <- t(filtered_r_matrix_nai3)
-corrplot(r_matrix_filtered_nai3)
+#r_matrix_filtered_nai3 <- t(filtered_r_matrix_nai3)
+corrplot(filtered_r_value_matrix_nai3)
+
+corrplot(spearman_deg3_nai$r, p.mat = spearman_deg3_nai$p.adj, sig.level = 0.05, tl.cex = 0.5, insig ='blank' )
 
 {
-  pdf(paste0("../",result.dir,"spearman_dose3_naive.pdf"),  width = 25, height = 25)
-  corrplot(r_matrix_filtered_nai3)
+  pdf(paste0("../",corr_figures.dir,"spearman_dose3_naive.pdf"),  width = 25, height = 25)
+  corrplot(filtered_r_value_matrix_nai3)
   dev.off()
 }
+
+{
+  pdf(paste0("../",corr_figures.dir,"spearman_dose3_nai_insigblank.pdf"),  width = 25, height = 25)
+  corrplot(spearman_deg3_nai$r, p.mat = spearman_deg3_nai$p.adj, sig.level = 0.05, tl.cex = 0.5, insig ='blank',
+         )
+  dev.off()
+}
+
+
+#Visualising insig values 
+
+# {
+#   pdf(paste0("../",result.dir,"spearman_dose1_naive_x.pdf"),  width = 25, height = 25)
+#   corrplot(spearman_deg1_nai$r, p.mat = spearman_deg1_nai$p.adj, sig.level = 0.05, tl.cex = 1, insig ='blank',
+#          )
+#   dev.off()
+# }
+
+{
+  pdf(paste0("../",corr_figures.dir,"spearman_dose1_exp_x.pdf"),  width = 25, height = 25)
+  corrplot(spearman_deg1_exp$r, p.mat = spearman_deg1_exp$p.adj, sig.level = 0.05, tl.cex = 1, insig ='blank',
+         )
+  dev.off()
+}
+
+
+
+{
+  pdf(paste0("../",corr_figures.dir,"spearman_dose2_naive_x.pdf"),  width = 25, height = 25)
+  corrplot(spearman_deg2_nai$r, p.mat = spearman_deg2_nai$p.adj, sig.level = 0.05, tl.cex = .3, insig ='blank',
+         )
+  dev.off()
+}
+
+
+
+{
+  pdf(paste0("../",corr_figures.dir,"spearman_dose2_exp_x.pdf"),  width = 25, height = 25)
+  corrplot(spearman_deg2_exp$r, p.mat = spearman_deg2_exp$p.adj, sig.level = 0.05, tl.cex = 0.3, insig ='blank',
+         )
+  dev.off()
+}
+
+{
+  pdf(paste0("../",corr_figures.dir,"spearman_dose3_naive_x.pdf"),  width = 25, height = 25)
+  corrplot(spearman_deg3_nai$r, p.mat = spearman_deg3_nai$p.adj, sig.level = 0.05, tl.cex = .8, insig ='blank',
+         )
+  dev.off()
+}
+
+{
+  pdf(paste0("../",corr_figures.dir,"spearman_dose3_exp_x.pdf"),  width = 25, height = 25)
+  corrplot(spearman_deg3_exp$r, p.mat = spearman_deg3_exp$p.adj, sig.level = 0.05, tl.cex = 0.5, insig ='blank',
+         )
+  dev.off()
+}
+
+
 ```
 
 ## Showing significant correlations on heatmap.
