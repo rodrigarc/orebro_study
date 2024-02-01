@@ -876,56 +876,6 @@ list_gse_reactome <- lapply(ls_processed, function(x) {
   )
 })
 ```
-#### Ridgeplot
-
-Helpful to interpret up/down-regulated pathways.
-
-```{r, fig.width=18, fig.height=12, fig.keep=10:17}
-#Optional: uncomment line below to remove all comparisons except naive vs conv at each timepoint
-#list_gse_hallmark <- list_gse_hallmark[10:17]
-
-
-ridgeplotting <- function(x) {
-  list_gse[[x]] %>%
-    ridgeplot(fill = "enrichmentScore") +
-    viridis::scale_fill_viridis(option = "turbo") +
-    ggtitle(x) +
-    cowplot::theme_cowplot(
-      font_size = 6,
-      line_size = 1.5,
-      rel_small = 1.6,
-      rel_tiny = 1,
-      font_family = "Arial",
-      rel_large = 4
-    ) +
-    theme(
-      legend.position = "right",
-      legend.direction = "vertical",
-      legend.key.size = unit(1, "cm"),
-      legend.title = element_text(size = 16, face = "bold", family = "Arial"),
-      legend.text = element_text(size = 14),
-      axis.title = element_text(size = 35),
-      axis.text.x = element_text(size = 16),
-      axis.text.y = element_text(size = 16)
-    ) +
-    scale_y_discrete()
-}
-
-ridgeplots <- lapply(names(list_gse), ridgeplotting)
-names(ridgeplots) <- names(list_gse)
-print(ridgeplots)
-
-```
-
-```{r, echo=FALSE, results='hide'}
-# save ridge plots
-lapply(names(ridgeplots), function(x) {
-  ggsave(
-    filename = paste0("../", figures.dir, x, "_Reactome_plot.png"),
-    plot = ridgeplots[[x]], width = 16, height = 12
-  )
-})
-```
 
 #### Combined GSEA heatmap
 
