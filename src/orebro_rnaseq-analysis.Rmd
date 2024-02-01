@@ -14,6 +14,8 @@ editor_options:
   chunk_output_type: inline
 ---
 
+## Global knitr settings 
+
 ```{r, global.options, include=FALSE}
 # Set up figures and chunks messages
 
@@ -82,20 +84,41 @@ library(ggprism)
 library(msigdbr)
 ```
 
+## Define directories
+
+```{r, results='hide'}
+# Define base directory
+data_dir <- "../data/"
+
+# Define gene counts directory
+count_dir <- file.path(data_dir, "processed_data_nfcore/batch_1-2/salmon/")
+## Gene counts file
+count_file <- file.path(count_dir, "salmon.merged.gene_counts.tsv")
+
+# Define metadata directory
+sample_metadata_dir <- file.path(data_dir, "metadata/")
+
+## Gene metadata file
+gene_metadata_file <- file.path(sample_metadata_dir, "2023-11-222_mart_export_gene_ids_hsa.txt")
+## Sample metadata file
+sample_metadata_file <- file.path(sample_metadata_dir, "sample_metadata_1.csv")
+## Patient metadata file
+patient_metadata_file <- file.path(sample_metadata_dir, "patient_metadata.csv")
+```
+
 ## Load and wrangle raw counts
 
 ```{r, results='hide'}
 # Load raw counts
-counts_raw <- data.table::fread("../data/processed_data_nfcore/batch_1-2/salmon/salmon.merged.gene_counts.tsv",
+counts_raw <- data.table::fread(count_file,
   header = TRUE, sep = "\t"
 ) %>%
   as.data.frame() %>%
   select(-gene_id)
 
-
 colnames(counts_raw) <- sub("_L001|_L002", "", colnames(counts_raw))
 # Filter for only protein coding genes or mitochondrial/ribosomic genes
-gene_id_metadata <- read.csv("../data/metadata/2023-11-222_mart_export_gene_ids_hsa.txt") %>% filter(Gene.type %in% c("Mt_rRNA", "protein_coding", "rRNA"))
+gene_id_metadata <- read.csv(gene_metadata_file) %>% filter(Gene.type %in% c("Mt_rRNA", "protein_coding", "rRNA"))
 # Aggregate and sum up genes with same gene symbol (sum up isoform of genes)
 counts_raw <- counts_raw[counts_raw$gene_name %in% gene_id_metadata$Gene.name, ]
 
@@ -113,13 +136,13 @@ counts_raw <- dplyr::select(counts_raw, -c(gene_name))
 
 ```{r, results='hide'}
 # Load sample metadata
-sampleTable <- read.table("../data/metadata/sample_metadata_1.csv",
+sampleTable <- read.table(sample_metadata_file,
   sep = ",", header = TRUE
 ) %>%
   dplyr::select(-c(age, sex))
 
 # Load patient metadata
-patient_metadata <- read.table("../data/metadata/patient_metadata.csv",
+patient_metadata <- read.table(patient_metadata_file,
   sep = ",", header = TRUE
 )
 
