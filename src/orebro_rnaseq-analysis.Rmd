@@ -342,7 +342,7 @@ sampleTable <- sampleTable %>%
     batch = factor(batch)
   )
 
-# create 3 DESeq objects comparing against conditions, time and dose
+# Create DESeq objects with different designs; comparing against conditions, time and dose
 dds1 <- DESeqDataSetFromMatrix(
   countData = round(counts_filtered),
   colData = as.data.frame(sampleTable),
@@ -441,7 +441,7 @@ ggsave(
 
 ### Principal Component Analysis (PCA)
 
-Dimensionality reduction for evaluating outliers and global sample clusters for both quality control but also for primary exploratory analysis.
+Dimensionality reduction for evaluating outliers and global sample clusters for quality control and primary exploratory analysis.
 
 ```{r}
 # PCA plot
@@ -570,35 +570,11 @@ d2 <- compare_DEGs("24_dose2", "0_dose2", condition = "dose", dds = dds3)
 d3_24 <- compare_DEGs("24_dose3", "0_dose3", condition = "dose", dds = dds3)
 d3_48 <- compare_DEGs("48_dose3", "0_dose3", condition = "dose", dds = dds3)
 
-# Resultds dds4 intercept
-
+# Results dds4 intercept
 resTC <- results(ddsTC)
 ```
 
-#### Likelihood ratio test to check for interaction between dose and time
-
-```{r}
-betas <- coef(ddsTC)
-topGenes <- head(order(resTC$padj), 20)
-mat <- betas[topGenes, -c(1, 2)]
-thr <- 3
-mat[mat < -thr] <- -thr
-mat[mat > thr] <- thr
-pheatmap(mat,
-  breaks = seq(from = -thr, to = thr, length = 101),
-  cluster_col = FALSE, scale = "row"
-)
-
-test <- as.tibble(merge(neg_d2, pos_d2, by = 0, all = T, suffix = c("_neg", "_pos")))
-
-test %>%
-  filter((log2FoldChange_neg > 0 & log2FoldChange_pos < 0), padj_neg < 0.05) %>%
-  pull(Row.names)
-```
-
 ### Volcano plots
-
-
 Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
 
 ```{r, fig.width=18, fig.height=12, fig.keep=10:17}
@@ -759,31 +735,6 @@ Also testing the Blood Transcriptome modules presented in [Li et al. 2014](10.10
 ```{r, results='hide'}
 # Enrichment analysis
 listEnrichrDbs()
-
-enrichment_list_up <- lapply(results_list_plot, function(x) {
-  enrichr(
-    genes = rownames(x[x$test_padj == "Up regulated", ]),
-    databases = c(
-      "GO_Biological_Process_2021",
-      "KEGG_2021_Human",
-      "GO_Molecular_Function_2021",
-      "Reactome_2022"
-    )
-  )
-})
-
-
-enrichment_list_down <- lapply(results_list_plot, function(x) {
-  enrichr(
-    genes = rownames(x[x$test_padj == "Down regulated", ]),
-    databases = c(
-      "GO_Biological_Process_2021",
-      "KEGG_2021_Human",
-      "GO_Molecular_Function_2021",
-      "Reactome_2022"
-    )
-  )
-})
 
 gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
 # gmt.hallmark <- read.gmt("../data/metabolic_transcriptionmodule/MgSig_Hallmark.gmt")
