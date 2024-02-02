@@ -1273,38 +1273,6 @@ degs_entrez_id <- lapply(degs, function(x) plyr::mapvalues(x, from = annot$SYMBO
 
 compared_cluster <- compareCluster(degs_entrez_id, fun = "enrichKEGG", organism = "hsa")
 cluster_termsim <- pairwise_termsim(compared_cluster, method = "JC")
-p4 <- emapplot(cluster_termsim, cex_category = 1.5, layout = "nicely", showCategory = 31)
-p4 + scale_fill_npg()
-
-ggsave(
-  filename = paste0("../", result.dir, "ora_kegg_pathway_network.pdf"),
-  height = 10, width = 10
-)
-
-compared_cluster_cnet <- setReadable(compared_cluster, OrgDb = org.Hs.eg.db, "ENTREZID")
-cnetplot(compared_cluster_cnet, showCategory = c(
-  "NOD-like receptor signaling pathway",
-  "Cytosolic DNA-sensing pathway",
-  "Complement and coagulation cascades",
-  "Necroptosis",
-  "TNF signaling pathway",
-  "Neutrophil extracellular trap formation",
-  "Fc gamma R-mediated phagocytosis",
-  "Toll-like receptor signaling pathway",
-  "RIG-I-like receptor signaling pathway",
-  "Proteasome",
-  "Phagosome",
-  "Antigen processing and presentation",
-  "JAK-STAT signaling pathway",
-  "Coronavirus disease - COVID-19",
-  "SNARE interactions in vesicular transport"
-)) +
-  scale_fill_npg()
-
-ggsave(
-  filename = paste0("../", result.dir, "ora_kegg_pathway_gene_network_selected.pdf"),
-  height = 10, width = 10
-)
 
 # create empty data.frame with Naive Dose 1 for aesthetics
 data_empty <- data.frame(
@@ -1358,21 +1326,6 @@ treeplot(cluster_termsim,
 ggsave(
   filename = paste0("../", result.dir, "ora_kegg_pathway_tree.pdf"),
   height = 10, width = 30
-)
-
-dotplot(cluster_termsim, showCategory = 31, color = "log10_padj") +
-  theme_prism(base_line_size = .5, base_fontface = "plain", axis_text_angle = 45) +
-  labs(x = "", color = "Adjusted p-value\n(-log10)") +
-  scale_color_gradient2(low = "#265891", mid = "white", high = "#B80F20") +
-  theme(
-    axis.ticks = element_line(size = .5), legend.position = "right",
-    aspect.ratio = 1,
-    legend.title = element_text()
-  )
-
-ggsave(
-  filename = paste0("../", result.dir, "ora_kegg_pathway_dotplot.pdf"),
-  height = 15, width = 15
 )
 ```
 
