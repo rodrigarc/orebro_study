@@ -1,37 +1,36 @@
+name: OrebroEnv
 channels:
   - conda-forge
   - bioconda
-  - R
   - defaults
-  - pwwang
 dependencies:
-  - r-base=4.1.2
-  - r-data.table=1.14.2
-  - r-kableExtra=1.3.4
-  - r-forcats=0.5.1
+  - r-base=4.3.2
+  - r-data.table=1.15.0
+  - r-kableExtra=1.4.0
+  - r-forcats=1.0.0
   - r-mgsub=1.7.3
-  - bioconductor-deseq2=1.34.0
-  - r-pheatmap=1.0.12 
-  - r-ggplot2=3.3.5
-  - r-ggrepel=0.9.1
-  - r-rcolorbrewer=1.1-2
-  - bioconductor-limma=3.50.1
-  - bioconductor-edger=3.36.0
-  - r-enrichr=3.0
+  - bioconductor-deseq2=1.42.0
+  - r-pheatmap=1.0.12
+  - r-ggplot2=3.4.4
+  - r-ggrepel=0.9.5
+  - r-rcolorbrewer=1.1-3
+  - bioconductor-limma=3.58.1
+  - bioconductor-edger=4.0.12
+  - r-enrichr=3.2
   - r-gridextra=2.3
-  - r-stringr=1.4.0
-    # - r-ggvenndiagram=1.2.0
-  - r-dplyr#=2.1.1
-  - bioconductor-ensembldb #=2.18.4
+  - r-stringr=1.5.1
+  - r-dplyr=1.1.4
+  - bioconductor-ensembldb=2.26.0
   - bioconductor-ensdb.hsapiens.v86=2.99.0
   - r-factoextra=1.0.7
   - r-rafalib=1.0.0
   - r-plotly=4.10.0
-  - r-tibble=3.1.6
-  - r-devtools=2.4.3
-  - bioconductor-clusterprofiler#=4.2.2
-  - bioconductor-enrichplot#=1.14.2
+  - r-tibble=3.2.1
+  - r-devtools=2.4.5
+  - bioconductor-clusterprofiler=4.10.0
+  - bioconductor-enrichplot=1.22.0
   - bioconductor-pathview=1.34.0
-  - r-ggprism=1.0.3
+  - r-ggprism=1.0.4
   - r-rmarkdown=2.13
-  - rstudio
+  - rstudio=2023.12.0  # Adjust the version as needed
+  # Additional dependencies can be added here
