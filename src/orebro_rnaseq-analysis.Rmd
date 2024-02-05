@@ -14,9 +14,9 @@ editor_options:
   chunk_output_type: inline
 ---
 
-## Global knitr settings 
 
 ```{r, global.options, include=FALSE}
+# Global knitr settings 
 # Set up figures and chunks messages
 
 knitr::opts_knit$set(
@@ -57,7 +57,7 @@ options(stringsAsFactors = FALSE)
 
 ## Load libraries
 
-```{r, results='hide'}
+```{r, include=FALSE, results='hide'}
 library(tidyr)
 library(ggpubr)
 library(ggsci)
@@ -94,7 +94,7 @@ library(msigdbr)
 
 ## Define directories
 
-```{r, results='hide'}
+```{r, include=FALSE, results='hide'}
 # Define base directory
 data_dir <- "../data/"
 
@@ -587,7 +587,7 @@ resTC <- results(ddsTC)
 ### Figure 2 A, S5 A-C Volcano plots  
 Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
 
-```{r, fig.width=18, fig.height=12, fig.keep=10:17}
+```{r, results='hide', fig.width=18, fig.height=12, fig.keep=10:17}
 results_list <- list(
   base_pos_neg_d1,
   base_pos_neg_d2,
@@ -775,7 +775,7 @@ ls_processed <- lapply(results_list, process_to_gsea)
 
 #### Blood Transcription Modules
 
-```{r, include=FALSE}
+```{r, results='hide'}
 list_gse <- lapply(ls_processed, function(x) {
   GSEA(
     geneList = x,
@@ -791,7 +791,7 @@ list_gse <- lapply(ls_processed, function(x) {
 ```
 
 #### MSigDb Reactome gene sets
-```{r, eval==FALSE}
+```{r, results='hide'}
 list_gse_reactome <- lapply(ls_processed, function(x) {
   GSEA(
     geneList = x,
@@ -871,7 +871,7 @@ BTM_heatmap <- matrix(as.numeric(to_heatmap), ncol = ncol(to_heatmap)) %>%
   )
 ```
 
-```{r, echo=FALSE, results='hide'}
+```{r, include=FALSE}
 # save BTM heatmap
 ggsave(
   filename = paste0("../", figures.dir, "BTM_heatmap.pdf"),
