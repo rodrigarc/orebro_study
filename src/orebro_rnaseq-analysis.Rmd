@@ -734,26 +734,16 @@ rbindlist(results_list_named, idcol = "comparison") %>%
   filter(padj < 0.05) %>%
   write.csv(., paste0("../", result.dir, "DEGs_all_comparisons.csv"), row.names = TRUE)
 ```
-### Enrichment analysis
 
-Selecting two different databases for search for enrichment analysis. The databases selected were "GO_Biological_Process_2021" and "KEGG_2021_Human".
-
-Also testing the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789) using some GSEA package.
-
-```{r, results='hide'}
-# Enrichment analysis
-listEnrichrDbs()
-
-gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
-# gmt.hallmark <- read.gmt("../data/metabolic_transcriptionmodule/MgSig_Hallmark.gmt")
-gmt.reactome <- read.gmt("../data/metabolic_transcriptionmodule/MSigDB_reactome.gmt")
-```
-
-### Gene Set Enrichment Analysis
+## Gene Set Enrichment Analysis
 
 GSEA looks for patterns of enriched genes which are related to each other. Compared with over-representation analysis this does not rely solely on DEGs. Therefore, this method is better when the differences in gene expression is smaller.
 
-#### Annotations
+Database for enrichment analysis, "Reactome".
+
+Also testing the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789) using some GSEA package.
+
+### Annotations
 
 ```{r, results='hide'}
 # Set desired organim to homo sapiens
@@ -762,7 +752,13 @@ organism <- "org.Hs.eg.db"
 library(organism, character.only = TRUE)
 ```
 
-#### Prepare Input
+### Prepare Input
+
+```{r, results='hide'}
+gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
+
+gmt.reactome <- read.gmt("../data/metabolic_transcriptionmodule/MSigDB_reactome.gmt")
+```
 
 ```{r}
 process_to_gsea <- function(x) {
@@ -775,7 +771,7 @@ process_to_gsea <- function(x) {
 ls_processed <- lapply(results_list, process_to_gsea)
 ```
 
-#### Blood Transcription Modules
+### Blood Transcription Modules
 
 ```{r, include=FALSE}
 list_gse <- lapply(ls_processed, function(x) {
@@ -792,7 +788,7 @@ list_gse <- lapply(ls_processed, function(x) {
 })
 ```
 
-#### MSigDb Reactome gene sets
+### MSigDb Reactome gene sets
 ```{r, eval==FALSE}
 list_gse_reactome <- lapply(ls_processed, function(x) {
   GSEA(
@@ -1007,6 +1003,8 @@ ggsave(g2,
 ```
 
 ## Jaccard index of differentially expressed genes
+The Jaccard index is a measure of similarity between two sets of genes. Calculated using the GeneOverlap package.
+
 ```{r}
 degs <- lapply(gene_names_filt, function(x) {
   x %>%
@@ -1186,11 +1184,10 @@ plot_counts(gene_interest = "IL15")
 ```
 
 ## Over representation analysis of transcriptional factors
-Genes differentially upregulated in response to mRNA vaccination are enriched for antiviral and proinflammatory signaling pathways.
 
-DEGs with log2(fold change) greater than 1. 
-Cut-off for DEGs was FDR-adjusted p-value < 0.05. 
-N = 15.
+Databases used; KEGG Pathway Database (figure 3A) and the MSigDB subset for Transcriptional Factors Targets (figure 3B).
+
+DEGs with log2(fold change) greater than 1. Cut-off for DEGs was FDR-adjusted p-value < 0.05. N = 15.
 
 ```{r}
 msig_geneset <- msigdbr(species = "Homo sapiens", category = "C3")
@@ -1220,9 +1217,7 @@ ora_tf_df <- lapply(ora_tf, data.frame)
 ora_tf_df_bind <- rbindlist(ora_tf_df, use.names = TRUE, idcol = "group_timepoint", fill = TRUE) %>% as.data.frame()
 ```
 
-### Figure 3 B MSigDB subset
-Over-representation analysis of DEGs with log2(fold change) greater than 1 using the MSigDB subset of Transcriptional Factor Targets.
-
+### Figure 3B MSigDB 
 
 ```{r}
 ora_tf_df_bind <- ora_tf_df_bind %>%
@@ -1285,8 +1280,7 @@ ggsave(g3,
 )
 ```
 
-### Figure 3A KEGG Pathway database
-Over-representation analysis of DEGs with log2(fold change) greater than 1 using KEGG Pathway database.
+### Figure 3A KEGG Pathway
 
 ```{r}
 degs[["Naïve Dose 1 0-24 hours"]] <- "no_degs"
