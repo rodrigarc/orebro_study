@@ -447,7 +447,7 @@ ggsave(
 )
 ```
 
-### Principal Component Analysis (PCA)
+### Principal Component Analysis 
 
 Dimensionality reduction for evaluating outliers and global sample clusters for quality control and primary exploratory analysis.
 
@@ -582,7 +582,7 @@ d3_48 <- compare_DEGs("48_dose3", "0_dose3", condition = "dose", dds = dds3)
 resTC <- results(ddsTC)
 ```
 
-### Volcano plots
+### Figure 2 A, S5 A-C Volcano plots  
 Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
 
 ```{r, fig.width=18, fig.height=12, fig.keep=10:17}
@@ -775,7 +775,7 @@ process_to_gsea <- function(x) {
 ls_processed <- lapply(results_list, process_to_gsea)
 ```
 
-#### GSEA Blood Transcription Modules
+#### Blood Transcription Modules
 
 ```{r, include=FALSE}
 list_gse <- lapply(ls_processed, function(x) {
@@ -792,7 +792,7 @@ list_gse <- lapply(ls_processed, function(x) {
 })
 ```
 
-#### GSEA MSigDb Reactome gene sets
+#### MSigDb Reactome gene sets
 ```{r, eval==FALSE}
 list_gse_reactome <- lapply(ls_processed, function(x) {
   GSEA(
@@ -808,9 +808,8 @@ list_gse_reactome <- lapply(ls_processed, function(x) {
 })
 ```
 
-#### Combined GSEA heatmap
-
-Using the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789).
+#### Figure 4 B Heatmap Blood Transcriptome Modules
+Gene set enrichment analysis based on fold change ranking using the blood transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789). Cut-off for both analysis was FDR-adjusted p-value < 0.05. N = 15
 
 ```{r, gsea_heatmap}
 my_palette <- colorRampPalette(c("#265891", "white", "#B80F20"))(n = 100)
@@ -884,8 +883,10 @@ ggsave(
 ```
 
 
-## Fold change comparison 
-Between dose 2 and dose 3 
+## Figure 2 C Fold change comparison 
+Pearson’s correlation of fold changes in individual genes identified as differentially regulated in any group. 
+N = 15.
+Comparison between dose 2 and dose 3.
 
 ```{r, jaccard_index}
 extract_gene_names <- function(x) {
@@ -971,7 +972,7 @@ ggsave(g1,
 )
 ```
 
-### Supplemental figure fold change comparison
+### Figure S4 B Fold change comparison
 
 ```{r}
 filtered_gene_doses <- gene_names_sign_df %>%
@@ -1079,7 +1080,9 @@ heatmap1
 }
 ```
 
-## Cytokine heatmap
+## Figure 4 A Cytokine Heatmap
+
+Collection of significant differentially expressed genes of immune-associated groups of receptor ligands and receptors annotated in the HUGO database (total of 157). The bubble size represents the mean of absolute fold change when significant for both groups but the value itself when significant for only one of the groups. 
 
 4 gene sets were used based on the groups of  Chemokine (45), Interferon (33), Interleukins (43), and TNF (18) ligands according to the HUGO gene nomenclature Committee.
 
@@ -1182,8 +1185,12 @@ plot_counts(gene_interest = "IL1B")
 plot_counts(gene_interest = "IL15")
 ```
 
-## Transcription factors heatmap
-overrepresentation analysis of transcriptional factors
+## Over representation analysis of transcriptional factors
+Genes differentially upregulated in response to mRNA vaccination are enriched for antiviral and proinflammatory signaling pathways.
+
+DEGs with log2(fold change) greater than 1. 
+Cut-off for DEGs was FDR-adjusted p-value < 0.05. 
+N = 15.
 
 ```{r}
 msig_geneset <- msigdbr(species = "Homo sapiens", category = "C3")
@@ -1213,7 +1220,10 @@ ora_tf_df <- lapply(ora_tf, data.frame)
 ora_tf_df_bind <- rbindlist(ora_tf_df, use.names = TRUE, idcol = "group_timepoint", fill = TRUE) %>% as.data.frame()
 ```
 
-### Plot TF data
+### Figure 3 B MSigDB subset
+Over-representation analysis of DEGs with log2(fold change) greater than 1 using the MSigDB subset of Transcriptional Factor Targets.
+
+
 ```{r}
 ora_tf_df_bind <- ora_tf_df_bind %>%
   mutate(
@@ -1275,7 +1285,8 @@ ggsave(g3,
 )
 ```
 
-## ORA, TF cluster comparisons
+### Figure 3A KEGG Pathway database
+Over-representation analysis of DEGs with log2(fold change) greater than 1 using KEGG Pathway database.
 
 ```{r}
 degs[["Naïve Dose 1 0-24 hours"]] <- "no_degs"
