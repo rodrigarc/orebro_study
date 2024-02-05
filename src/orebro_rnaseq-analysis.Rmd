@@ -114,7 +114,8 @@ sample_metadata_file <- file.path(sample_metadata_dir, "sample_metadata_1.csv")
 patient_metadata_file <- file.path(sample_metadata_dir, "patient_metadata.csv")
 ```
 
-## Load and wrangle raw counts
+## Load raw counts
+Wrangle raw counts.
 
 ```{r, results='hide'}
 # Load raw counts
@@ -140,7 +141,8 @@ rownames(counts_raw) <- counts_raw$gene_name
 counts_raw <- dplyr::select(counts_raw, -c(gene_name))
 ```
 
-## Load metadata and match with raw counts
+## Load metadata 
+Match with raw counts.
 
 ```{r, results='hide'}
 # Load sample metadata
@@ -329,7 +331,7 @@ hist(log2(as.matrix(counts_filtered) + 1),
 }
 ```
 
-### DESeq object creation
+### Create DESeq object
 
 Generating three separate DESeq objects with different design parameters to allow for more comparisons. Controlling for age and sex.
 
@@ -376,7 +378,7 @@ dds4 <- DESeqDataSetFromMatrix(
 )
 ```
 
-### Normalization and Quality Control
+### VST normalization
 
 Normalize with variance stabilizing transformation Plot distribution of data after normalization
 
@@ -771,7 +773,7 @@ process_to_gsea <- function(x) {
 ls_processed <- lapply(results_list, process_to_gsea)
 ```
 
-### Blood Transcription Modules
+#### Blood Transcription Modules
 
 ```{r, include=FALSE}
 list_gse <- lapply(ls_processed, function(x) {
@@ -788,7 +790,7 @@ list_gse <- lapply(ls_processed, function(x) {
 })
 ```
 
-### MSigDb Reactome gene sets
+#### MSigDb Reactome gene sets
 ```{r, eval==FALSE}
 list_gse_reactome <- lapply(ls_processed, function(x) {
   GSEA(
@@ -804,7 +806,7 @@ list_gse_reactome <- lapply(ls_processed, function(x) {
 })
 ```
 
-#### Figure 4 B Heatmap Blood Transcriptome Modules
+### Figure 4 B Heatmap Blood Transcriptome Modules
 Gene set enrichment analysis based on fold change ranking using the blood transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789). Cut-off for both analysis was FDR-adjusted p-value < 0.05. N = 15
 
 ```{r, gsea_heatmap}
@@ -879,7 +881,7 @@ ggsave(
 ```
 
 
-## Figure 2 C Fold change comparison 
+### Figure 2 C Fold change comparison 
 Pearson’s correlation of fold changes in individual genes identified as differentially regulated in any group. 
 N = 15.
 Comparison between dose 2 and dose 3.
@@ -1002,7 +1004,7 @@ ggsave(g2,
 )
 ```
 
-## Jaccard index of differentially expressed genes
+## Jaccard index of DEGs
 The Jaccard index is a measure of similarity between two sets of genes. Calculated using the GeneOverlap package.
 
 ```{r}
@@ -1018,7 +1020,7 @@ gom_obj <- newGOM(degs, degs)
 filtered_degs_matrix <- getMatrix(gom_obj, "Jaccard")
 ```
 
-### Heatmap of Jaccard index
+### Heatmap Jaccard index
 
 ```{r}
 my_palette <- colorRampPalette(c("#265891", "#F6FF92", "#B80F20"))(n = 50)
