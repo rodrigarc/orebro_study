@@ -55,7 +55,7 @@ ifelse(isFALSE(dir.exists(paste0("../", figures.dir))),
 options(stringsAsFactors = FALSE)
 ```
 
-## Loading libraries
+## Load libraries
 
 ```{r, results='hide'}
 library(tidyr)
@@ -775,7 +775,7 @@ process_to_gsea <- function(x) {
 ls_processed <- lapply(results_list, process_to_gsea)
 ```
 
-#### Gene Set Enrichment Li et al BTMs
+#### GSEA Blood Transcription Modules
 
 ```{r, include=FALSE}
 list_gse <- lapply(ls_processed, function(x) {
@@ -792,7 +792,7 @@ list_gse <- lapply(ls_processed, function(x) {
 })
 ```
 
-#### Gene Set Enrichment MSigDb Reactome gene sets
+#### GSEA MSigDb Reactome gene sets
 ```{r, eval==FALSE}
 list_gse_reactome <- lapply(ls_processed, function(x) {
   GSEA(
@@ -884,7 +884,8 @@ ggsave(
 ```
 
 
-## Fold change comparison between dose 2 and dose 3 
+## Fold change comparison 
+Between dose 2 and dose 3 
 
 ```{r, jaccard_index}
 extract_gene_names <- function(x) {
@@ -970,7 +971,7 @@ ggsave(g1,
 )
 ```
 
-## Supplemental figure fold change comparison
+### Supplemental figure fold change comparison
 
 ```{r}
 filtered_gene_doses <- gene_names_sign_df %>%
@@ -1004,6 +1005,7 @@ ggsave(g2,
 )
 ```
 
+## Jaccard index of differentially expressed genes
 ```{r}
 degs <- lapply(gene_names_filt, function(x) {
   x %>%
@@ -1017,7 +1019,7 @@ gom_obj <- newGOM(degs, degs)
 filtered_degs_matrix <- getMatrix(gom_obj, "Jaccard")
 ```
 
-## Jaccard index of differentially expressed genes
+### Heatmap of Jaccard index
 
 ```{r}
 my_palette <- colorRampPalette(c("#265891", "#F6FF92", "#B80F20"))(n = 50)
@@ -1132,7 +1134,7 @@ ggsave(g2,
 )
 ```
 
-### Generating examples of cytokine DEGs
+### Generate examples of cytokine DEGs
 
 ```{r degs_show}
 # interesting genes related to complement
@@ -1273,7 +1275,7 @@ ggsave(g3,
 )
 ```
 
-## ORA tf cluster comparisons
+## ORA, TF cluster comparisons
 
 ```{r}
 degs[["Naïve Dose 1 0-24 hours"]] <- "no_degs"
