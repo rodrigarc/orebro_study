@@ -55,9 +55,9 @@ ifelse(isFALSE(dir.exists(paste0("../", figures.dir))),
 options(stringsAsFactors = FALSE)
 ```
 
-## Load libraries
-
 ```{r, include=FALSE, results='hide'}
+# Load libraries
+
 library(tidyr)
 library(ggpubr)
 library(ggsci)
@@ -91,10 +91,9 @@ library(msigdbr)
 ```
 
 
-
-## Define directories
-
 ```{r, include=FALSE, results='hide'}
+# Set up the directories
+
 # Define base directory
 data_dir <- "../data/"
 
@@ -585,7 +584,7 @@ resTC <- results(ddsTC)
 ```
 
 ### Figure 2 A, S5 A-C Volcano plots  
-Volcano plot for data exploratory analysis, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
+Volcano plot, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
 
 ```{r, results='hide', fig.width=18, fig.height=12, fig.keep=10:17}
 results_list <- list(
@@ -739,18 +738,22 @@ rbindlist(results_list_named, idcol = "comparison") %>%
 
 ## Gene Set Enrichment Analysis
 
-GSEA looks for patterns of enriched genes which are related to each other. Compared with over-representation analysis this does not rely solely on DEGs. Therefore, this method is better when the differences in gene expression is smaller.
+GSEA looks for patterns of enriched genes which are related to each other. Compared with over-representation analysis this does not rely solely on DEGs. Therefore, this method is advantageous when the differences in gene expression is smaller.
 
-Database for enrichment analysis, "Reactome".
-
-Also testing the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789) using some GSEA package.
+Database used for enrichment analysis, "Reactome". Also testing the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789).
 
 ### Annotations
+
+```{r, eval=FALSE}
+# Install and load the required package if needed
+# BiocManager::install(organism, character.only = TRUE)
+```
+
 
 ```{r, results='hide'}
 # Set desired organim to homo sapiens
 organism <- "org.Hs.eg.db"
-# BiocManager::install(organism, character.only = TRUE)
+
 library(organism, character.only = TRUE)
 ```
 
@@ -807,7 +810,8 @@ list_gse_reactome <- lapply(ls_processed, function(x) {
 ```
 
 ### Figure 4 B Heatmap Blood Transcriptome Modules
-Gene set enrichment analysis based on fold change ranking using the blood transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789). Cut-off for both analysis was FDR-adjusted p-value < 0.05. N = 15
+Gene set enrichment analysis based on fold change ranking using the blood transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789). 
+Cut-off; FDR-adjusted p-value < 0.05. N = 15
 
 ```{r, gsea_heatmap}
 my_palette <- colorRampPalette(c("#265891", "white", "#B80F20"))(n = 100)
@@ -964,6 +968,9 @@ g1 <- filtered_gene_doses %>%
 
 g1
 
+```
+```{r, include=FALSE}
+# save fold change comparison plot
 ggsave(g1,
   filename = paste0("../", result.dir, "linear_relationship_fold_change_main.pdf"),
   height = 7, width = 7
@@ -971,6 +978,7 @@ ggsave(g1,
 ```
 
 ### Figure S4 B Fold change comparison
+Fold changes in individual genes identified as significantly differentially regulated in any group, Dose 1 and Dose 3.
 
 ```{r}
 filtered_gene_doses <- gene_names_sign_df %>%
@@ -997,7 +1005,10 @@ g2 <- filtered_gene_doses %>%
   )
 
 g2
+```
 
+```{r, include=FALSE}
+# save supplementary fold change comparison plot
 ggsave(g2,
   filename = paste0("../", result.dir, "linear_relationship_fold_change_supp.pdf"),
   height = 7, width = 7
@@ -1005,7 +1016,7 @@ ggsave(g2,
 ```
 
 ## Jaccard index of DEGs
-The Jaccard index is a measure of similarity between two sets of genes. Calculated using the GeneOverlap package.
+The Jaccard index is a measure of overlap between two sets of genes, in this case the DEGs between the convalascent and naive groups. Calculated using the GeneOverlap package.
 
 ```{r}
 degs <- lapply(gene_names_filt, function(x) {
@@ -1022,7 +1033,7 @@ filtered_degs_matrix <- getMatrix(gom_obj, "Jaccard")
 
 ### Heatmap Jaccard index
 
-```{r}
+```{r, results='hide'}
 my_palette <- colorRampPalette(c("#265891", "#F6FF92", "#B80F20"))(n = 50)
 # order matrix based on cluster
 od <- hclust(dist(filtered_degs_matrix), method = "ward.D2")$order
@@ -1073,6 +1084,10 @@ heatmap1 <- Heatmap(filtered_degs_matrix_ordered,
   }
 )
 heatmap1
+```
+
+```{r, include=FALSE}
+# save Jaccard index heatmap
 {
   pdf(file = paste0("../", result.dir, "jaccard_index_plot.pdf"), height = 5, width = 7)
   draw(heatmap1)
@@ -1085,6 +1100,8 @@ heatmap1
 Collection of significant differentially expressed genes of immune-associated groups of receptor ligands and receptors annotated in the HUGO database (total of 157). The bubble size represents the mean of absolute fold change when significant for both groups but the value itself when significant for only one of the groups. 
 
 4 gene sets were used based on the groups of  Chemokine (45), Interferon (33), Interleukins (43), and TNF (18) ligands according to the HUGO gene nomenclature Committee.
+
+Cut-off; FDR-adjusted p-value < 0.05. N = 15.
 
 ```{r}
 ls_gene_file <- list.files("../data/gene_sets", pattern = "231102|231128", full.names = TRUE)
@@ -1131,6 +1148,10 @@ g2 <- cytokine_heatmap %>%
     legend.title = element_text()
   )
 g2
+```
+
+```{r, include=FALSE}
+# save cytokine heatmap
 ggsave(g2,
   filename = paste0("../", result.dir, "cytokine_degs.pdf"),
   height = 7, width = 7
@@ -1276,6 +1297,10 @@ g3 <- ora_tf_df_bind %>%
     legend.title = element_text()
   )
 g3
+```
+
+```{r, include=FALSE}
+# save transcription factor ORA plot
 ggsave(g3,
   filename = paste0("../", result.dir, "transcription_factors_ORA.pdf"),
   height = 7, width = 7
@@ -1340,11 +1365,16 @@ treeplot(cluster_termsim,
     legend.title = element_text()
   )
 
+```
+
+```{r, include=FALSE}
+# save KEGG pathway ORA plot
 ggsave(
   filename = paste0("../", result.dir, "ora_kegg_pathway_tree.pdf"),
   height = 10, width = 30
 )
 ```
+
 
 ## Vaccine detection in RNA-seq
 
