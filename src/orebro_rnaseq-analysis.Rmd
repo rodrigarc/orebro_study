@@ -246,7 +246,7 @@ hist(log2(as.matrix(counts_raw) + 1),
 
 Plot number of genes detected across samples. All samples are more or less close to average so we don't need to discard any samples.
 
-```{r}
+```{r, results='hide'}
 barplot(colSums(counts_raw > 3),
   ylab = "Number of detected genes",
   las = 2
@@ -414,6 +414,7 @@ boxplot(vst_matrix,
 ```
 
 ### Heatmap
+Hierarchical clustering for initial inspection of sample similarity and gene expression patterns.
 
 ```{r}
 # Sample heatmap
@@ -744,7 +745,7 @@ Database used for enrichment analysis, "Reactome". Also testing the Blood Transc
 
 ### Annotations
 
-```{r, eval=FALSE}
+```{r, eval=FALSE, include=FALSE}
 # Install and load the required package if needed
 # BiocManager::install(organism, character.only = TRUE)
 ```
@@ -753,7 +754,6 @@ Database used for enrichment analysis, "Reactome". Also testing the Blood Transc
 ```{r, results='hide'}
 # Set desired organim to homo sapiens
 organism <- "org.Hs.eg.db"
-
 library(organism, character.only = TRUE)
 ```
 
@@ -761,7 +761,6 @@ library(organism, character.only = TRUE)
 
 ```{r, results='hide'}
 gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
-
 gmt.reactome <- read.gmt("../data/metabolic_transcriptionmodule/MSigDB_reactome.gmt")
 ```
 
@@ -793,7 +792,7 @@ list_gse <- lapply(ls_processed, function(x) {
 })
 ```
 
-#### MSigDb Reactome gene sets
+#### MSigDb Reactome
 ```{r, results='hide'}
 list_gse_reactome <- lapply(ls_processed, function(x) {
   GSEA(
@@ -940,9 +939,7 @@ gene_names_sign_df <- gene_names_df_filt %>%
       log2FoldChange_Conv < 0 & log2FoldChange_Naïve > 0 ~ "Upregulated Naïve"
     )
   )
-```
 
-```{r}
 filtered_gene_doses <- gene_names_sign_df %>%
   filter(!timepoint %in% c("Dose 1", "Dose 3 48h"))
 
@@ -1378,7 +1375,7 @@ ggsave(
 
 ## Vaccine detection in RNA-seq
 
-```{r}
+```{r, results='hide'}
 tpm_gene <- data.table::fread("../data/processed_data_nfcore/batch_1-2/salmon/salmon.merged.gene_tpm.tsv", header = TRUE, sep = "\t") %>%
   as.data.frame()
 
@@ -1419,6 +1416,9 @@ vaccine_plot %>%
   ) +
   facet_wrap(~group, ncol = 4)
 
+```
+```{r, include=FALSE}
+# save vaccine detection plot
 ggsave(
   filename = paste0("../", figures.dir, "pfizer_detection_rna-seq.pdf"),
   height = 5, width = 7
