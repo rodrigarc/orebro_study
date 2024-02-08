@@ -1,6 +1,6 @@
 # Modulation of innate immune response to mRNA vaccination after SARS-CoV-2 infection or sequential vaccination in humans
 
-Github repo for the bioinformatic analysis performed in the paper Modulation of innate immune response to mRNA vaccination after SARS-CoV-2 infection or sequential vaccination in humans.
+Github repo for the bioinformatic analysis performed in the paper.
 
 ## Prerequisites
 Ensure you have installed the latest version of [R](https://www.r-project.org/).
@@ -13,7 +13,7 @@ Ensure you have installed the latest version of [R](https://www.r-project.org/).
 
 After installing Pandoc, you can verify the installation and version by running the following command in your R console:
 
-rmarkdown::pandoc_version()
+`rmarkdown::pandoc_version()`
 
 
 ## Installation
