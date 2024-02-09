@@ -49,18 +49,21 @@ After installing Pandoc, you can verify the installation and version by running 
 
 ### Download and run analysis
 
-1. Open the terminal and clone the repository.
+Open the terminal and clone the repository.
 ```
 git clone git@github.com:rodrigarc/orebro_study.git
 ```
 
-3. Navigate to the project directory. If you are using RStudio, open the project by clicking on the `orebro_study.Rproj` file.
+#### 1. RStudio
 
-4. To restore the project environment, run the following command in the R console:
+Navigate to the project directory. Open the project by clicking on the `orebro_study.Rproj` file.
+
+To restore the project environment, run the following command in the R console:
 ```
 renv::restore()
 ```
 
+#### 2. Terminal
 To just access the HTML file of the rendered R markdown run.
 ```
 bash src/render_Rmd.sh
