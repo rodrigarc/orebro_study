@@ -25,11 +25,11 @@ For bulk RNASeq analysis, whole blood was collected into PAXgene® Blood RNA tub
 
 
 ## Repository structure
- - `src` folder: contains all the source code used for the analysis.
- - `orebro_study.Rproj` file: contains the R project to be open within RStudio for reproducibility purposes.
- - `results` folder contains generated plots
- - `renv` folder: contains the files generated when renv is initiated. 
- - `renv.lock` filer: contains the package versions and dependencies used to generate the plots.
+ - `src`: all the source code used for the analysis.
+ - `orebro_study.Rproj`: the R project to be open within RStudio for reproducibility purposes.
+ - `results`: generated plots.
+ - `renv`: files generated when renv is initiated.
+ - `renv.lock`: contains the package versions and dependencies used to generate the plots.
 
 ## Reproducibility
 
