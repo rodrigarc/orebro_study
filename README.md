@@ -49,29 +49,21 @@ After installing Pandoc, you can verify the installation and version by running 
 
 ### Download and run analysis
 
-Open the terminal and clone the repository.
+Open the terminal and clone the repository:
 ```
 git clone git@github.com:rodrigarc/orebro_study.git
 ```
 
-#### 1. RStudio
-
-Navigate to the project directory. Open the project by clicking on the `orebro_study.Rproj` file.
+Navigate to the project directory. Open the project in RStudio by clicking on the `orebro_study.Rproj` file.
 
 To restore the project environment, run the following command in the R console:
 ```
 renv::restore()
 ```
 
-#### 2. Terminal
-To just access the HTML file of the rendered R markdown run.
-```
-bash src/render_Rmd.sh
-```
-
 ### Plots and rendered results
 
-All the plots will be generated under a `results` folder under a date folder (eg. `results/2023-02-10`) automatically created. The Rmarkdown file is rendered to html and contains the information regarding the type of analysis and its code used to generate all plots. A rendered version is already online and uploaded under `src/orebro_rnaseq-analysis.html` if you wish to just check the code used for each plot. The rendered `html` containing the code and analysis can be accessed [HERE](need to setup github pages).
+The plots generated are automatically stored in the `results` directory, organized by date (e.g., results/2023-02-10). The Rmarkdown file is rendered to HTML, detailing the types of analyses performed and the corresponding code for generating all plots. A pre-rendered version is available online which can be accessed [HERE]() or at `src/orebro_rnaseq-analysis.html`.
 
 ##  Contributors
 The following people contributed to this repository:
