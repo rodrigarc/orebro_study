@@ -21,6 +21,9 @@ Abstract mRNA vaccines are likely to become widely used for the prevention of in
 
 ## Preprocessing dataset
 
+For bulk RNASeq analysis, whole blood was collected into PAXgene® Blood RNA tubes (PreAnalytiX, BD Biosciences) according to manufacturer instructions and stored at -20°C until sequencing. For library preparation, tubes were thawed overnight at RT and RNA extracted using the PAXGene Blood RNA kit (PreAnalytiX, Qiagen) according to manufacturer instructions. Total RNA concentration was measured using a NanoDrop ND-1000 spectrophotometer (Thermo Fisher Scientific, MA, USA). RNA integrity was assessed using the Agilent RNA ScreenTape assay and Agilent 2200 TapeStation (Agilent Technologies, Santa Clara, CA, USA) according to manufacturer instructions. In preparation for Illumina sequencing, isolation of mRNA, cDNA synthesis, anchor ligation, amplification and library indexing were performed using the Illumina ® Stranded mRNA Prep kit according to manufacturer instructions. Library yield was quantified by Qubit fluorometer (Thermo Fisher Scientific, MA, USA) and quality assessed by Agilent TapeStation. Indexed DNA libraries were normalized, pooled and sequenced using a NovaSeq 6000 instrument, S4 flowcell, 2x150 base pairs, in paired-end mode.
+
+
 ## Repository structure
  - `src` folder: contains all the source code used for the analysis.
  - `orebro_study.Rproj` file: contains the R project to be open within RStudio for reproducibility purposes.
@@ -44,9 +47,9 @@ After installing Pandoc, you can verify the installation and version by running 
 
 `rmarkdown::pandoc_version()`
 
-### Installation
+### Download and run analysis
 
-1. Open the terminal and clone the repository
+1. Open the terminal and clone the repository.
 ```
 git clone git@github.com:rodrigarc/orebro_study.git
 ```
@@ -58,7 +61,7 @@ git clone git@github.com:rodrigarc/orebro_study.git
 renv::restore()
 ```
 
-To just access the HTML file of the rendered R markdown run
+To just access the HTML file of the rendered R markdown run.
 ```
 bash src/render_Rmd.sh
 ```
