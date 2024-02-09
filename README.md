@@ -43,9 +43,7 @@ For bulk RNASeq analysis, whole blood was collected into PAXgene® Blood RNA tub
 
 [Pandoc](https://pandoc.org/) is required for knitting R Markdown documents. `rmarkdown` relies on Pandoc but does not include it within the package. As such, Pandoc is a system dependency outside the scope of `renv`. To ensure consistent document rendering, please ensure that you have Pandoc installed on your system. The version used for this project is Pandoc 3.1.1, which can be downloaded from the [Pandoc releases page](https://github.com/jgm/pandoc/releases/tag/3.1.1).
 
-After installing Pandoc, you can verify the installation and version by running the following command in your R console:
-
-`rmarkdown::pandoc_version()`
+After installing Pandoc, you can verify the installation and version by running the following command in your R console: `rmarkdown::pandoc_version()`
 
 ### Download and run analysis
 
