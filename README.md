@@ -12,7 +12,7 @@ The metadata record is available at figshare scilifelab: [figshare](https://doi.
 * [Repository structure](#repository-structure)
 * [Reproducibility](#reproducibility)
 * [Plots and rendered results](#plots-and-rendered-results)
-* [Contributors](contributers)
+* [Contributors](contributors)
 * [License](#license)
 
 ## Abstract
