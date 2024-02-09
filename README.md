@@ -54,10 +54,14 @@ git clone git@github.com:rodrigarc/orebro_study.git
 3. Navigate to the project directory. If you are using RStudio, open the project by clicking on the `orebro_study.Rproj` file.
 
 4. To restore the project environment, run the following command in the R console:
-`renv::restore()`
+```
+renv::restore()
+```
 
 To just access the HTML file of the rendered R markdown run
-`bash src/render_Rmd.sh` (fix)
+```
+bash src/render_Rmd.sh
+```
 
 ### Plots and rendered results
 
