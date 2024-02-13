@@ -55,9 +55,8 @@ ifelse(isFALSE(dir.exists(paste0("../", figures.dir))),
 options(stringsAsFactors = FALSE)
 ```
 
-```{r, include=FALSE, results='hide'}
 # Load libraries
-
+```{r, results='hide'}
 library(tidyr)
 library(ggpubr)
 library(ggsci)
@@ -80,6 +79,7 @@ library(stringr)
 library(dplyr)
 library(ensembldb)
 library(EnsDb.Hsapiens.v86)
+library("org.Hs.eg.db", character.only = TRUE)
 library(factoextra)
 library(rafalib)
 library(tibble)
@@ -91,9 +91,8 @@ library(msigdbr)
 ```
 
 
-```{r, include=FALSE, results='hide'}
 # Set up the directories
-
+```{r, results='hide'}
 # Define base directory
 data_dir <- "../data/"
 
@@ -742,21 +741,7 @@ rbindlist(results_list_named, idcol = "comparison") %>%
 GSEA looks for patterns of enriched genes which are related to each other. Compared with over-representation analysis this does not rely solely on DEGs. Therefore, this method is advantageous when the differences in gene expression is smaller.
 
 Database used for enrichment analysis, "Reactome". Also testing the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789).
-
-### Annotations
-
-```{r, eval=FALSE, include=FALSE}
-# Install and load the required package if needed
-# BiocManager::install(organism, character.only = TRUE)
-```
-
-
-```{r, results='hide'}
-# Set desired organim to homo sapiens
-organism <- "org.Hs.eg.db"
-library(organism, character.only = TRUE)
-```
-
+  
 ### Prepare Input
 
 ```{r, results='hide'}
