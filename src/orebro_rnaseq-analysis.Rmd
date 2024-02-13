@@ -3,7 +3,7 @@ title: "Orebro RNA-seq analysis"
 author: "Rodrigo Arcoverde Cerveira & Gustav Joas"
 date: '`r format(Sys.Date(), "%Y-%m-%d")`'
 output: html_document
-abstract: Örebro study RNA-seq data analysis.
+abstract: Abstract mRNA vaccines are likely to become widely used for the prevention of infectious diseases in the future. Nevertheless, a notable gap exists in mechanistic data, particularly concerning the potential effects of sequential mRNA immunization or pre-existing immunity on the early innate immune response triggered by vaccination. In this study healthy adults, with or without documented prior SARS-CoV-2 infection, were vaccinated with the BNT162b2/Comirnaty mRNA vaccine. Prior infection conferred significantly stronger induction of proinflammatory and type I interferon related gene signatures, serum cytokines, and monocyte expansion after the prime vaccination. The response to the second vaccination further increased the magnitude of the early innate response in both study groups. The third vaccination did not additionally augment vaccine-induced inflammation. In vitro stimulation of PBMCs with toll-like receptor ligands showed no difference in cytokine responses between groups or pre/post prime vaccination, indicating absence of a trained immunity effect. We observed that levels of pre-existing antigen-specific CD4 T cells, antibody and memory B cells correlated with elements of the early innate response to the first vaccination. Our data thereby indicate that pre-existing memory formed by infection can augment the innate immune activation induced by mRNA vaccines. 
 knit: (function(inputFile, encoding) {
           rmarkdown::render(inputFile,
                             encoding = encoding, 
@@ -760,7 +760,7 @@ process_to_gsea <- function(x) {
 ls_processed <- lapply(results_list, process_to_gsea)
 ```
 
-#### Blood Transcription Modules
+#### Blood Transcription Modules 
 
 ```{r, results='hide'}
 list_gse <- lapply(ls_processed, function(x) {
