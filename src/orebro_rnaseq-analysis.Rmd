@@ -14,7 +14,6 @@ editor_options:
   chunk_output_type: inline
 ---
 
-
 ```{r, global.options, include=FALSE}
 # Global knitr settings 
 # Set up figures and chunks messages
@@ -56,6 +55,7 @@ options(stringsAsFactors = FALSE)
 ```
 
 # Load libraries
+
 ```{r, results='hide'}
 library(tidyr)
 library(ggpubr)
@@ -90,8 +90,8 @@ library(ggprism)
 library(msigdbr)
 ```
 
-
 # Set up the directories
+
 ```{r, results='hide'}
 # Define base directory
 data_dir <- "../data/"
@@ -112,7 +112,22 @@ sample_metadata_file <- file.path(sample_metadata_dir, "sample_metadata_1.csv")
 patient_metadata_file <- file.path(sample_metadata_dir, "patient_metadata.csv")
 ```
 
+# 3rd batch test
+
+```{r}
+# count data
+count_dir <- file.path(data_dir, "processed_data_nfcore/batch_3_selfprocessed")
+count_file <- file.path(count_dir, "salmon.merged.gene_counts.tsv")
+
+# metadata
+sample_metadata_file <- file.path(sample_metadata_dir, "sample_metadata_3.csv")
+# NGI metadata
+sample_metadata_NGI <- file.path(sample_metadata_dir, "BEA23P140_translation.xlsx")
+```
+
+
 ## Load raw counts
+
 Wrangle raw counts.
 
 ```{r, results='hide'}
@@ -139,7 +154,8 @@ rownames(counts_raw) <- counts_raw$gene_name
 counts_raw <- dplyr::select(counts_raw, -c(gene_name))
 ```
 
-## Load metadata 
+## Load metadata
+
 Match with raw counts.
 
 ```{r, results='hide'}
@@ -153,10 +169,45 @@ sampleTable <- read.table(sample_metadata_file,
 patient_metadata <- read.table(patient_metadata_file,
   sep = ",", header = TRUE
 )
-
 # Join sample and patient metadata
 sampleTable <- sampleTable %>% left_join(patient_metadata, by = "subject_ID")
+```
 
+# Filter for 3rd batch 10 error samples
+```{r, results='hide'}
+# Load NGI sample metadata
+sample_metadata_NGI <- readxl::read_excel(sample_metadata_NGI) 
+
+# change first row to be column names
+colnames(sample_metadata_NGI) <- sample_metadata_NGI[1, ]  
+
+# remove first row
+sample_metadata_NGI <- sample_metadata_NGI[-1, ] %>% 
+  # change name of columns
+  rename(
+    sample_ID = "NGI Sample ID", # matches with counts_raw colnames
+    sample = 'sample_id', # matches with sampleTable sample column
+  )
+
+# filter sampleTable to only include NGI samples that match with sample_metadata_NGI sample column
+sampleTable <- sampleTable %>% 
+  filter(sample %in% sample_metadata_NGI$sample)
+```
+
+# remove control samples
+```{r}
+# remove subject_ID 222-19 and 222-8
+sampleTable <- sampleTable %>% 
+  filter(subject_ID != "222-19" & subject_ID != "222-8")
+```
+
+
+```{r}
+# Adjust the column names by removing the last underscore and everything after it
+colnames(counts_raw) <- sub("_S[0-9]+$", "", colnames(counts_raw))
+```
+
+```{r, results='hide'}
 # Change visits to dose and time point...
 sampleTable <- sampleTable %>%
   mutate(
@@ -183,14 +234,14 @@ sampleTable <- sampleTable %>%
     group = as.factor(prior_covid19)
   )
 
-# Remove 24dose_2 from subject 21 (missing 0dose_2)
-sampleTable <- subset(sampleTable, sample_ID != "P22761_1037_S37")
-
-# Remove one sample from subject 7 (sample replicate)
-sampleTable <- subset(sampleTable, sample_ID != "P26208_1060_S62")
-
-# Remove corresponding samples from count table
-counts_raw <- subset(counts_raw, select = -c(P26208_1060_S62, P22761_1037_S37))
+# # Remove 24dose_2 from subject 21 (missing 0dose_2)
+# sampleTable <- subset(sampleTable, sample_ID != "P22761_1037_S37")
+# 
+# # Remove one sample from subject 7 (sample replicate)
+# sampleTable <- subset(sampleTable, sample_ID != "P26208_1060_S62")
+# 
+# # Remove corresponding samples from count table
+# counts_raw <- subset(counts_raw, select = -c(P26208_1060_S62, P22761_1037_S37))
 
 # Match count data with sample table
 colnames(counts_raw) <- sampleTable$sample_ID
@@ -354,27 +405,28 @@ sampleTable <- sampleTable %>%
 dds1 <- DESeqDataSetFromMatrix(
   countData = round(counts_filtered),
   colData = as.data.frame(sampleTable),
-  design = ~ sex + age + batch + conditions
+  design = ~ age + conditions
 )
 
-dds2 <- DESeqDataSetFromMatrix(
-  countData = round(counts_filtered),
-  colData = as.data.frame(sampleTable),
-  design = ~ sex + age + batch + time
-)
-
-dds3 <- DESeqDataSetFromMatrix(
-  countData = round(counts_filtered),
-  colData = as.data.frame(sampleTable),
-  design = ~ sex + age + batch + dose
-)
-
-dds4 <- DESeqDataSetFromMatrix(
-  countData = round(counts_filtered),
-  colData = as.data.frame(sampleTable),
-  design = ~ sex + age + batch + dose + group + dose:group
+# dds2 <- DESeqDataSetFromMatrix(
+#   countData = round(counts_filtered),
+#   colData = as.data.frame(sampleTable),
+#   design = ~ age + batch + time
+# )
+# 
+# dds3 <- DESeqDataSetFromMatrix(
+#   countData = round(counts_filtered),
+#   colData = as.data.frame(sampleTable),
+#   design = ~ age + batch + dose
+# )
+# 
+# dds4 <- DESeqDataSetFromMatrix(
+#   countData = round(counts_filtered),
+#   colData = as.data.frame(sampleTable),
+#   design = ~ age + batch + dose + group + dose:group
 )
 ```
+
 
 ### VST normalization
 
@@ -413,6 +465,7 @@ boxplot(vst_matrix,
 ```
 
 ### Heatmap
+
 Hierarchical clustering for initial inspection of sample similarity and gene expression patterns.
 
 ```{r}
@@ -448,7 +501,7 @@ ggsave(
 )
 ```
 
-### Principal Component Analysis 
+### Principal Component Analysis
 
 Dimensionality reduction for evaluating outliers and global sample clusters for quality control and primary exploratory analysis.
 
@@ -530,15 +583,15 @@ Differential Gene Expression Analysis using DESeq2. Comparing parameters; dose, 
 ```{r, results='hide'}
 # Run the DESeq2 analysis
 dds1 <- DESeq(dds1)
-dds2 <- DESeq(dds2)
-dds3 <- DESeq(dds3)
-ddsTC <- DESeq(dds4, test = "LRT", reduced = ~ dose + group)
+# dds2 <- DESeq(dds2)
+# dds3 <- DESeq(dds3)
+# ddsTC <- DESeq(dds4, test = "LRT", reduced = ~ dose + group)
 
 # Contrast
 resultsNames(dds1)
-resultsNames(dds2)
-resultsNames(dds3)
-resultsNames(ddsTC)
+# resultsNames(dds2)
+# resultsNames(dds3)
+# resultsNames(ddsTC)
 
 # Create function for makings comparisons with default being conditions and dds1
 compare_DEGs <- function(variable1, variable2, condition = "conditions", dds = dds1) {
@@ -546,45 +599,125 @@ compare_DEGs <- function(variable1, variable2, condition = "conditions", dds = d
 }
 
 # Baselines DEGs
-base_pos_neg_d1 <- compare_DEGs("pos_0_dose1", "neg_0_dose1")
-base_pos_neg_d2 <- compare_DEGs("pos_0_dose2", "neg_0_dose2")
-base_pos_neg_d3 <- compare_DEGs("pos_0_dose3", "neg_0_dose3")
+#base_pos_neg_d1 <- compare_DEGs("pos_0_dose1", "neg_0_dose1")
+## base_pos_neg_d2 <- compare_DEGs("pos_0_dose2", "neg_0_dose2")
+#base_pos_neg_d3 <- compare_DEGs("pos_0_dose3", "neg_0_dose3")
 
-base_pos_d1_d2 <- compare_DEGs("pos_0_dose2", "pos_0_dose1")
-base_pos_d1_d3 <- compare_DEGs("pos_0_dose3", "pos_0_dose1")
-base_pos_d2_d3 <- compare_DEGs("pos_0_dose2", "pos_0_dose3")
+#base_pos_d1_d2 <- compare_DEGs("pos_0_dose2", "pos_0_dose1")
+#base_pos_d1_d3 <- compare_DEGs("pos_0_dose3", "pos_0_dose1")
+## base_pos_d2_d3 <- compare_DEGs("pos_0_dose2", "pos_0_dose3")
 
-base_neg_d1_d2 <- compare_DEGs("neg_0_dose2", "neg_0_dose1")
-base_neg_d1_d3 <- compare_DEGs("neg_0_dose3", "neg_0_dose1")
-base_neg_d2_d3 <- compare_DEGs("neg_0_dose2", "neg_0_dose3")
+#base_neg_d1_d2 <- compare_DEGs("neg_0_dose2", "neg_0_dose1")
+#base_neg_d1_d3 <- compare_DEGs("neg_0_dose3", "neg_0_dose1")
+#base_neg_d2_d3 <- compare_DEGs("neg_0_dose2", "neg_0_dose3")
 
 # 0-24h and 0-48 (3rd dose) DEGs
-neg_d1 <- compare_DEGs("neg_24_dose1", "neg_0_dose1")
-neg_d2 <- compare_DEGs("neg_24_dose2", "neg_0_dose2")
-neg_d3_24 <- compare_DEGs("neg_24_dose3", "neg_0_dose3")
-neg_d3_48 <- compare_DEGs("neg_48_dose3", "neg_0_dose3")
+#neg_d1 <- compare_DEGs("neg_24_dose1", "neg_0_dose1")
+## neg_d2 <- compare_DEGs("neg_24_dose2", "neg_0_dose2")
+#neg_d3_24 <- compare_DEGs("neg_24_dose3", "neg_0_dose3")
+#neg_d3_48 <- compare_DEGs("neg_48_dose3", "neg_0_dose3")
 
-pos_d1 <- compare_DEGs("pos_24_dose1", "pos_0_dose1")
+#pos_d1 <- compare_DEGs("pos_24_dose1", "pos_0_dose1")
 pos_d2 <- compare_DEGs("pos_24_dose2", "pos_0_dose2")
-pos_d3_24 <- compare_DEGs("pos_24_dose3", "pos_0_dose3")
-pos_d3_48 <- compare_DEGs("pos_48_dose3", "pos_0_dose3")
+## pos_d3_24 <- compare_DEGs("pos_24_dose3", "pos_0_dose3")
+#pos_d3_48 <- compare_DEGs("pos_48_dose3", "pos_0_dose3")
 
 # Results dds2
-pos <- compare_DEGs("pos_24", "pos_0", condition = "time", dds = dds2)
-neg <- compare_DEGs("neg_24", "neg_0", condition = "time", dds = dds2)
+##pos <- compare_DEGs("pos_24", "pos_0", condition = "time", dds = dds2)
+## neg <- compare_DEGs("neg_24", "neg_0", condition = "time", dds = dds2)
 
 # Results dds3
-d1 <- compare_DEGs("24_dose1", "0_dose1", condition = "dose", dds = dds3)
-d2 <- compare_DEGs("24_dose2", "0_dose2", condition = "dose", dds = dds3)
-d3_24 <- compare_DEGs("24_dose3", "0_dose3", condition = "dose", dds = dds3)
-d3_48 <- compare_DEGs("48_dose3", "0_dose3", condition = "dose", dds = dds3)
-
-# Results dds4 intercept
-resTC <- results(ddsTC)
+# d1 <- compare_DEGs("24_dose1", "0_dose1", condition = "dose", dds = dds3)
+# d2 <- compare_DEGs("24_dose2", "0_dose2", condition = "dose", dds = dds3)
+# d3_24 <- compare_DEGs("24_dose3", "0_dose3", condition = "dose", dds = dds3)
+# d3_48 <- compare_DEGs("48_dose3", "0_dose3", condition = "dose", dds = dds3)
+# 
+# # Results dds4 intercept
+# resTC <- results(ddsTC)
 ```
 
-### Figure 2 A, S5 A-C Volcano plots  
-Volcano plot, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
+### Figure 2 A, S5 A-C Volcano plots
+
+Volcano plot, filtering for significant values with False Discovery Rate \< 0.05 and log fold change greater than 1.
+
+```{r, results='hide', fig.width=18, fig.height=12, fig.keep=10:17}
+results_list <- list(
+  pos_d2
+)
+
+names(results_list) <- c(
+  "Conv Dose 2 0-24 hours"
+)
+
+results_list_plot <- lapply(results_list, function(x) {
+  x <- x %>% mutate(
+    test_padj = case_when(
+      padj < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
+      padj < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
+      TRUE ~ "Not significant"
+    ),
+    test_pvalue = case_when(
+      pvalue < 0.05 & log2FoldChange >= 1 ~ "Up regulated",
+      pvalue < 0.05 & log2FoldChange <= -1 ~ "Down regulated",
+      TRUE ~ "Not significant"
+    ),
+  )
+})
+
+# function to plot volcano plots
+volcano_plot <- function(x, pvalue_selection = c("padj", "pvalue")) {
+  if (pvalue_selection == "padj") {
+    col_name_pval <- "test_padj"
+  } else if (pvalue_selection == "pvalue") {
+    col_name_pval <- "test_pvalue"
+  } else {
+    stop("Please change the pvalue_selection argument value. It should either `padj` or `pvalue`.")
+  }
+  subsetted <- subset(results_list_plot[[x]] %>% tibble::rownames_to_column("gene_symbol"), abs(log2FoldChange) >= 1 & get(pvalue_selection) < 0.05)
+  label_list <- c("RSAD2", "IFIT1", "CXCL10", "CMPK2", "GBP1P1", "IFI44L", "BATF2", "SIGLEC1", "IFI44", "NDUFS4", "MX1", "CXCL9", "FCGR1A", "FCGR1B", "CCL4")
+  label <- subsetted %>% filter(gene_symbol %in% label_list)
+
+  # count up regulated DEGs
+  deg_number_up <- subset(
+    results_list_plot[[x]] %>%
+      tibble::rownames_to_column("gene_symbol"),
+    log2FoldChange >= 1 & get(pvalue_selection) < 0.05
+  ) %>%
+    nrow()
+  # count down regulated DEGs
+  deg_number_down <- subset(
+    results_list_plot[[x]] %>%
+      tibble::rownames_to_column("gene_symbol"),
+    log2FoldChange <= -1 & get(pvalue_selection) < 0.05
+  ) %>%
+    nrow()
+
+
+  results_list_plot[[x]] %>%
+    ggplot(aes(x = log2FoldChange, y = -log10(get(pvalue_selection)))) +
+    geom_point(aes(color = get(col_name_pval)), size = 3, alpha = 0.3) +
+    scale_color_manual(values = c("Down regulated" = "blue", "Not significant" = "grey80", "Up regulated" = "red")) +
+    xlab(expression("Fold Change (Log"[2] * ")")) +
+    ylab(expression(paste0("-Log"[10] * "(", pvalue_selection, ")"))) +
+    labs(x = NULL, y = NULL) +
+    geom_vline(xintercept = c(-1), linetype = "dotted", size = 1) +
+    geom_vline(xintercept = c(1), linetype = "dotted", size = 1) +
+    geom_hline(yintercept = -log10(0.05), linetype = "dotted", size = 1) +
+    geom_label_repel(data = label, aes(log2FoldChange, -log10(get(pvalue_selection)), label = gene_symbol)) +
+    xlim(-2, 6) +
+    ylim(0, 20) +
+    ggtitle(x) +
+    annotate(geom = "text", colour = "red", size = 10, x = 4, y = 20, hjust = 0, label = paste0(deg_number_up)) +
+    annotate(geom = "text", colour = "blue", size = 10, x = -2, y = 20, hjust = 0, label = paste0(deg_number_down)) +
+    ggprism::theme_prism() +
+    theme(axis.ticks = element_line(size = .5), legend.position = "none")
+}
+
+
+volcano_plots <- lapply(names(results_list_plot), volcano_plot, pvalue_selection = "padj")
+names(volcano_plots) <- names(results_list_plot)
+volcano_plots
+```
 
 ```{r, results='hide', fig.width=18, fig.height=12, fig.keep=10:17}
 results_list <- list(
@@ -741,7 +874,7 @@ rbindlist(results_list_named, idcol = "comparison") %>%
 GSEA looks for patterns of enriched genes which are related to each other. Compared with over-representation analysis this does not rely solely on DEGs. Therefore, this method is advantageous when the differences in gene expression is smaller.
 
 Database used for enrichment analysis, "Reactome". Also testing the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789).
-  
+
 ### Prepare Input
 
 ```{r, results='hide'}
@@ -760,7 +893,7 @@ process_to_gsea <- function(x) {
 ls_processed <- lapply(results_list, process_to_gsea)
 ```
 
-#### Blood Transcription Modules 
+#### Blood Transcription Modules
 
 ```{r, results='hide'}
 list_gse <- lapply(ls_processed, function(x) {
@@ -778,6 +911,7 @@ list_gse <- lapply(ls_processed, function(x) {
 ```
 
 #### MSigDb Reactome
+
 ```{r, results='hide'}
 list_gse_reactome <- lapply(ls_processed, function(x) {
   GSEA(
@@ -794,8 +928,8 @@ list_gse_reactome <- lapply(ls_processed, function(x) {
 ```
 
 ### Figure 4 B Heatmap Blood Transcriptome Modules
-Gene set enrichment analysis based on fold change ranking using the blood transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789). 
-Cut-off; FDR-adjusted p-value < 0.05. N = 15
+
+Gene set enrichment analysis based on fold change ranking using the blood transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789). Cut-off; FDR-adjusted p-value \< 0.05. N = 15
 
 ```{r, gsea_heatmap}
 my_palette <- colorRampPalette(c("#265891", "white", "#B80F20"))(n = 100)
@@ -868,11 +1002,9 @@ ggsave(
 )
 ```
 
+### Figure 2 C Fold change comparison
 
-### Figure 2 C Fold change comparison 
-Pearson’s correlation of fold changes in individual genes identified as differentially regulated in any group. 
-N = 15.
-Comparison between dose 2 and dose 3.
+Pearson’s correlation of fold changes in individual genes identified as differentially regulated in any group. N = 15. Comparison between dose 2 and dose 3.
 
 ```{r, jaccard_index}
 extract_gene_names <- function(x) {
@@ -951,6 +1083,7 @@ g1 <- filtered_gene_doses %>%
 g1
 
 ```
+
 ```{r, include=FALSE}
 # save fold change comparison plot
 ggsave(g1,
@@ -960,6 +1093,7 @@ ggsave(g1,
 ```
 
 ### Figure S4 B Fold change comparison
+
 Fold changes in individual genes identified as significantly differentially regulated in any group, Dose 1 and Dose 3.
 
 ```{r}
@@ -998,6 +1132,7 @@ ggsave(g2,
 ```
 
 ## Jaccard index of DEGs
+
 The Jaccard index is a measure of overlap between two sets of genes, in this case the DEGs between the convalascent and naive groups. Calculated using the GeneOverlap package.
 
 ```{r}
@@ -1079,11 +1214,11 @@ heatmap1
 
 ## Figure 4 A Cytokine Heatmap
 
-Collection of significant differentially expressed genes of immune-associated groups of receptor ligands and receptors annotated in the HUGO database (total of 157). The bubble size represents the mean of absolute fold change when significant for both groups but the value itself when significant for only one of the groups. 
+Collection of significant differentially expressed genes of immune-associated groups of receptor ligands and receptors annotated in the HUGO database (total of 157). The bubble size represents the mean of absolute fold change when significant for both groups but the value itself when significant for only one of the groups.
 
-4 gene sets were used based on the groups of  Chemokine (45), Interferon (33), Interleukins (43), and TNF (18) ligands according to the HUGO gene nomenclature Committee.
+4 gene sets were used based on the groups of Chemokine (45), Interferon (33), Interleukins (43), and TNF (18) ligands according to the HUGO gene nomenclature Committee.
 
-Cut-off; FDR-adjusted p-value < 0.05. N = 15.
+Cut-off; FDR-adjusted p-value \< 0.05. N = 15.
 
 ```{r}
 ls_gene_file <- list.files("../data/gene_sets", pattern = "231102|231128", full.names = TRUE)
@@ -1192,7 +1327,7 @@ plot_counts(gene_interest = "IL15")
 
 Databases used; KEGG Pathway Database (figure 3A) and the MSigDB subset for Transcriptional Factors Targets (figure 3B).
 
-DEGs with log2(fold change) greater than 1. Cut-off for DEGs was FDR-adjusted p-value < 0.05. N = 15.
+DEGs with log2(fold change) greater than 1. Cut-off for DEGs was FDR-adjusted p-value \< 0.05. N = 15.
 
 ```{r}
 msig_geneset <- msigdbr(species = "Homo sapiens", category = "C3")
@@ -1222,7 +1357,7 @@ ora_tf_df <- lapply(ora_tf, data.frame)
 ora_tf_df_bind <- rbindlist(ora_tf_df, use.names = TRUE, idcol = "group_timepoint", fill = TRUE) %>% as.data.frame()
 ```
 
-### Figure 3B MSigDB 
+### Figure 3B MSigDB
 
 ```{r}
 ora_tf_df_bind <- ora_tf_df_bind %>%
@@ -1357,7 +1492,6 @@ ggsave(
 )
 ```
 
-
 ## Vaccine detection in RNA-seq
 
 ```{r, results='hide'}
@@ -1402,6 +1536,7 @@ vaccine_plot %>%
   facet_wrap(~group, ncol = 4)
 
 ```
+
 ```{r, include=FALSE}
 # save vaccine detection plot
 ggsave(
@@ -1409,6 +1544,3 @@ ggsave(
   height = 5, width = 7
 )
 ```
-
-
-
