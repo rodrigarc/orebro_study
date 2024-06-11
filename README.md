@@ -3,15 +3,16 @@ Hellgren F, Rosdahl A, Arcoverde Cerveira R, Lenart K, Ols S, Gwon Y-D, Joas G, 
 
 Corresponding author: Karin Loré, Division of Immunology and Allergy, Department of Medicine Solna, Karolinska Institutet, Visionsgatan 4, BioClinicum J7:30, Karolinska University Hospital, 171 64 Stockholm, Sweden.
 
-Github repo for the bioinformatic analysis performed in the paper Hellgren et.al. 2024. (link to paper DOI), 
-The metadata record is available at figshare scilifelab: [figshare](https://doi.org/10.17044/scilifelab.24941913)
+Github repo for the bioinformatic analysis performed in the paper Hellgren et.al. 2024. (DOI: [10.1172/jci.insight.175401](https://doi.org/10.1172/jci.insight.175401)). 
+The metadata record is available at figshare scilifelab (DOI: [10.17044/scilifelab.24941913](https://doi.org/10.17044/scilifelab.24941913)).
+To access this page rendered as HTML for easier visualization, click [HERE](https://rodrigarc.github.io/orebro_study/)
 
 ## Table of Contents
 * [Abstract](#abstract)
 * [Preprocessing dataset](#preprocessing-dataset)
 * [Repository structure](#repository-structure)
 * [Reproducibility](#reproducibility)
-* [Plots and rendered results](#plots-and-rendered-results)
+* [Code for plots and rendered results](#code-for-plots-and-rendered-results)
 * [Contributors](#contributors)
 * [License](#license)
 
@@ -59,9 +60,9 @@ To restore the project environment, run the following command in the R console:
 renv::restore()
 ```
 
-### Plots and rendered results
+### [Code for plots and rendered results](https://rodrigarc.github.io/rabies_mRNA/results/lab_book/orebro_rnaseq-analysis.html)
 
-The plots generated are automatically stored in the `results` directory, organized by date (e.g., results/2023-02-10). The Rmarkdown file is rendered to HTML, detailing the types of analyses performed and the corresponding code for generating all plots. A pre-rendered version is available online which can be accessed [HERE]() or at `src/orebro_rnaseq-analysis.html`.
+The plots generated are automatically stored in the `results` directory, organized by date (e.g., results/2023-02-10). The Rmarkdown file is rendered to HTML, detailing the types of analyses performed and the corresponding code for generating all plots. A pre-rendered version is available online which can be accessed [HERE](https://rodrigarc.github.io/rabies_mRNA/results/lab_book/orebro_rnaseq-analysis.html) or at `results/lab_book/orebro_rnaseq-analysis.html`.
 
 ##  Contributors
 The following people contributed to this repository:
