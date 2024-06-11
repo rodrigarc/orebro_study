@@ -2,13 +2,20 @@
 title: "Orebro RNA-seq analysis"
 author: "Rodrigo Arcoverde Cerveira & Gustav Joas"
 date: '`r format(Sys.Date(), "%Y-%m-%d")`'
-output: html_document
+output: 
+ html_document:
+    toc: true
+    depth: 2
+    toc_float: true
+    number_sections: true
+ github_document:
+    preview_html: false
 abstract: Abstract mRNA vaccines are likely to become widely used for the prevention of infectious diseases in the future. Nevertheless, a notable gap exists in mechanistic data, particularly concerning the potential effects of sequential mRNA immunization or pre-existing immunity on the early innate immune response triggered by vaccination. In this study healthy adults, with or without documented prior SARS-CoV-2 infection, were vaccinated with the BNT162b2/Comirnaty mRNA vaccine. Prior infection conferred significantly stronger induction of proinflammatory and type I interferon related gene signatures, serum cytokines, and monocyte expansion after the prime vaccination. The response to the second vaccination further increased the magnitude of the early innate response in both study groups. The third vaccination did not additionally augment vaccine-induced inflammation. In vitro stimulation of PBMCs with toll-like receptor ligands showed no difference in cytokine responses between groups or pre/post prime vaccination, indicating absence of a trained immunity effect. We observed that levels of pre-existing antigen-specific CD4 T cells, antibody and memory B cells correlated with elements of the early innate response to the first vaccination. Our data thereby indicate that pre-existing memory formed by infection can augment the innate immune activation induced by mRNA vaccines. 
 knit: (function(inputFile, encoding) {
           rmarkdown::render(inputFile,
                             encoding = encoding, 
                             output_file = paste0(
-                              xfun::sans_ext(inputFile), '_', Sys.Date(), '.html'),
+                              xfun::sans_ext(inputFile),'.html'),
                                 output_dir = "../results/lab_book/")})
 editor_options: 
   chunk_output_type: inline
@@ -523,7 +530,7 @@ ggsave(
 }
 ```
 
-## Differential Gene Expression Analysis
+# Differential Gene Expression Analysis
 
 Differential Gene Expression Analysis using DESeq2. Comparing parameters; dose, time point, prior infection status.
 
@@ -583,7 +590,8 @@ d3_48 <- compare_DEGs("48_dose3", "0_dose3", condition = "dose", dds = dds3)
 resTC <- results(ddsTC)
 ```
 
-### Figure 2 A, S5 A-C Volcano plots  
+## Figure 2 A, S5 A-C Volcano plots  
+
 Volcano plot, filtering for significant values with False Discovery Rate < 0.05 and log fold change greater than 1.
 
 ```{r, results='hide', fig.width=18, fig.height=12, fig.keep=10:17}
@@ -736,17 +744,15 @@ rbindlist(results_list_named, idcol = "comparison") %>%
   write.csv(., paste0("../", result.dir, "DEGs_all_comparisons.csv"), row.names = TRUE)
 ```
 
-## Gene Set Enrichment Analysis
+# Gene Set Enrichment Analysis
 
 GSEA looks for patterns of enriched genes which are related to each other. Compared with over-representation analysis this does not rely solely on DEGs. Therefore, this method is advantageous when the differences in gene expression is smaller.
-
-Database used for enrichment analysis, "Reactome". Also testing the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789).
+The gene sets used were the Blood Transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789).
   
-### Prepare Input
+## Prepare Input
 
 ```{r, results='hide'}
 gmt <- read.gmt("../data/blood_transcription_module/BTM_for_GSEA_20131008.gmt")
-gmt.reactome <- read.gmt("../data/metabolic_transcriptionmodule/MSigDB_reactome.gmt")
 ```
 
 ```{r}
@@ -760,7 +766,7 @@ process_to_gsea <- function(x) {
 ls_processed <- lapply(results_list, process_to_gsea)
 ```
 
-#### Blood Transcription Modules 
+## Blood Transcription Modules 
 
 ```{r, results='hide'}
 list_gse <- lapply(ls_processed, function(x) {
@@ -777,23 +783,8 @@ list_gse <- lapply(ls_processed, function(x) {
 })
 ```
 
-#### MSigDb Reactome
-```{r, results='hide'}
-list_gse_reactome <- lapply(ls_processed, function(x) {
-  GSEA(
-    geneList = x,
-    TERM2GENE = gmt.reactome,
-    minGSSize = 3,
-    maxGSSize = 800,
-    nPermSimple = 10000,
-    pvalueCutoff = 0.05,
-    verbose = TRUE,
-    pAdjustMethod = "fdr"
-  )
-})
-```
+## Figure 4 B Heatmap Blood Transcriptome Modules
 
-### Figure 4 B Heatmap Blood Transcriptome Modules
 Gene set enrichment analysis based on fold change ranking using the blood transcriptome modules presented in [Li et al. 2014](10.1038/ni.2789). 
 Cut-off; FDR-adjusted p-value < 0.05. N = 15
 
@@ -869,7 +860,8 @@ ggsave(
 ```
 
 
-### Figure 2 C Fold change comparison 
+## Figure 2 C Fold change comparison 
+
 Pearson’s correlation of fold changes in individual genes identified as differentially regulated in any group. 
 N = 15.
 Comparison between dose 2 and dose 3.
@@ -959,7 +951,8 @@ ggsave(g1,
 )
 ```
 
-### Figure S4 B Fold change comparison
+## Figure S4 B Fold change comparison
+
 Fold changes in individual genes identified as significantly differentially regulated in any group, Dose 1 and Dose 3.
 
 ```{r}
@@ -997,7 +990,8 @@ ggsave(g2,
 )
 ```
 
-## Jaccard index of DEGs
+# Jaccard index of DEGs
+
 The Jaccard index is a measure of overlap between two sets of genes, in this case the DEGs between the convalascent and naive groups. Calculated using the GeneOverlap package.
 
 ```{r}
@@ -1013,7 +1007,7 @@ gom_obj <- newGOM(degs, degs)
 filtered_degs_matrix <- getMatrix(gom_obj, "Jaccard")
 ```
 
-### Heatmap Jaccard index
+## Heatmap Jaccard index
 
 ```{r, results='hide'}
 my_palette <- colorRampPalette(c("#265891", "#F6FF92", "#B80F20"))(n = 50)
@@ -1140,7 +1134,9 @@ ggsave(g2,
 )
 ```
 
-### Generate examples of cytokine DEGs
+# Generate examples of cytokine DEGs
+
+Visualization of specific signficantly increased/decreased cytokines to check their kinetics.
 
 ```{r degs_show}
 # interesting genes related to complement
@@ -1188,7 +1184,7 @@ plot_counts(gene_interest = "IL1B")
 plot_counts(gene_interest = "IL15")
 ```
 
-## Over representation analysis of transcriptional factors
+# Over representation analysis of transcriptional factors
 
 Databases used; KEGG Pathway Database (figure 3A) and the MSigDB subset for Transcriptional Factors Targets (figure 3B).
 
@@ -1222,7 +1218,7 @@ ora_tf_df <- lapply(ora_tf, data.frame)
 ora_tf_df_bind <- rbindlist(ora_tf_df, use.names = TRUE, idcol = "group_timepoint", fill = TRUE) %>% as.data.frame()
 ```
 
-### Figure 3B MSigDB 
+## Figure 3B MSigDB 
 
 ```{r}
 ora_tf_df_bind <- ora_tf_df_bind %>%
@@ -1289,7 +1285,8 @@ ggsave(g3,
 )
 ```
 
-### Figure 3A KEGG Pathway
+## Figure 3A KEGG Pathway
+
 
 ```{r}
 degs[["Naïve Dose 1 0-24 hours"]] <- "no_degs"
@@ -1358,9 +1355,13 @@ ggsave(
 ```
 
 
-## Vaccine detection in RNA-seq
+# Vaccine detection in RNA-seq
+
+The vaccine sequences were added as genes ([uploaded by Jeong et al. on github here on April 15, 2021](https://github.com/NAalytics/Assemblies-of-putative-SARS-CoV2-spike-encoding-mRNA-sequences-for-vaccines-BNT-162b2-and-mRNA-1273)) to the human genome before alignment to identify vaccine-specific mRNA reads. Moderna, Wild spike protein, and wild N-protein were also added as controls and can be visualized with the code below prior filtering pfizer-specific read counts. 
 
 ```{r, results='hide'}
+
+# load sample table from salmon output normalized by transcripts per million (tpm)
 tpm_gene <- data.table::fread("../data/processed_data_nfcore/batch_1-2/salmon/salmon.merged.gene_tpm.tsv", header = TRUE, sep = "\t") %>%
   as.data.frame()
 
@@ -1386,6 +1387,7 @@ vaccine_plot <- tidyr::pivot_longer(vaccine_tpm, cols = names_col) %>%
   ) %>%
   na.omit()
 
+# filter for pfizer specific read row, otherwise keep to visualize moderna, N- and S- proteins
 vaccine_plot %>%
   filter(grepl("pfizer", gene_id)) %>%
   ggplot(aes(x = time_dose, y = value, group = subject_ID, fill = group)) +
@@ -1402,6 +1404,7 @@ vaccine_plot %>%
   facet_wrap(~group, ncol = 4)
 
 ```
+
 ```{r, include=FALSE}
 # save vaccine detection plot
 ggsave(
