@@ -60,9 +60,9 @@ To restore the project environment, run the following command in the R console:
 renv::restore()
 ```
 
-### [Code for plots and rendered results](https://rodrigarc.github.io/rabies_mRNA/results/lab_book/orebro_rnaseq-analysis.html)
+### [Code for plots and rendered results](https://rodrigarc.github.io/orebro_study/results/lab_book/orebro_rnaseq-analysis.html)
 
-The plots generated are automatically stored in the `results` directory, organized by date (e.g., results/2023-02-10). The Rmarkdown file is rendered to HTML, detailing the types of analyses performed and the corresponding code for generating all plots. A pre-rendered version is available online which can be accessed [HERE](https://rodrigarc.github.io/rabies_mRNA/results/lab_book/orebro_rnaseq-analysis.html) or at `results/lab_book/orebro_rnaseq-analysis.html`.
+The plots generated are automatically stored in the `results` directory, organized by date (e.g., results/2023-02-10). The Rmarkdown file is rendered to HTML, detailing the types of analyses performed and the corresponding code for generating all plots. A pre-rendered version is available online which can be accessed [HERE](https://rodrigarc.github.io/orebro_study/results/lab_book/orebro_rnaseq-analysis.html) or at `results/lab_book/orebro_rnaseq-analysis.html`.
 
 ##  Contributors
 The following people contributed to this repository:
